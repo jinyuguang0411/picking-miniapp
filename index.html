@@ -3,62 +3,158 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Picking Mini App</title>
+  <title>Warehouse Ops Mini App</title>
+
   <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
   <style>
     body{font-family:system-ui;margin:16px}
-    button{padding:12px 14px;margin:6px 0;width:100%;font-size:16px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
+    .tab.active{border-color:#000}
     .card{border:1px solid #ddd;border-radius:12px;padding:12px;margin:10px 0}
+    button{padding:12px 14px;margin:6px 0;width:100%;font-size:16px}
+    input{padding:10px;width:100%;font-size:16px;margin:6px 0}
     small{color:#666}
     .ok{color:#0a0}
     .bad{color:#b00}
+    .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+    .muted{color:#666}
   </style>
 </head>
 <body>
-  <h2>拣货 / 피킹</h2>
+  <h2>仓库作业 / 창고 작업</h2>
 
+  <!-- 顶部导航 -->
+  <div class="tabs">
+    <div class="tab active" id="tab-home" onclick="showView('home')">主页 Home</div>
+    <div class="tab" id="tab-daily" onclick="showView('daily')">日当工牌</div>
+    <div class="tab" id="tab-b2c" onclick="showView('b2c')">B2C</div>
+    <div class="tab" id="tab-import" onclick="showView('import')">进口快件</div>
+    <div class="tab" id="tab-b2b" onclick="showView('b2b')">B2B</div>
+  </div>
+
+  <!-- 设备状态 -->
   <div class="card">
-    <small>设备ID（每台手机自动固定）</small>
+    <small>device_id（每台手机固定）</small>
     <div id="device"></div>
-    <small>当前拣货趟次 pick_session_id</small>
+    <small>当前 pick_session_id（本趟作业ID）</small>
     <div id="session"></div>
-    <small id="status"></small>
+    <small id="status" class="muted"></small>
   </div>
 
-  <div class="card">
-    <button onclick="startPicking()">开始拣货 / 시작</button>
-    <button onclick="openScanner()">扫码波次 / 웨이브 스캔</button>
-    <button onclick="endPicking()">结束拣货 / 종료</button>
+  <!-- HOME -->
+  <div id="view-home">
+    <div class="card">
+      <h3>入口</h3>
+      <button onclick="showView('daily')">日当工牌 / 일용직 명찰</button>
+      <button onclick="showView('b2c')">B2C 作业</button>
+      <button onclick="showView('import')">进口快件</button>
+      <button onclick="showView('b2b')">B2B 作业</button>
+    </div>
   </div>
-  <div class="card">
-  <h3>日当 / 일용직</h3>
-    <button onclick="dailyCheckin()">生成工牌（签到）/ 출근 등록</button>
-    <div><small>da_id</small></div>
-    <div id="daText">无</div>
-    <button onclick="bindDaily()">绑定工牌到当前趟次 / 명찰 연결</button>
-    <small id="daStatus"></small>
+
+  <!-- DAILY -->
+  <div id="view-daily" style="display:none;">
+    <div class="card">
+      <h3>日当工牌 / 일용직</h3>
+
+      <div style="margin-top:8px;">
+        <small>今天日当人数 N</small>
+        <input id="daCount" type="number" min="1" max="50" placeholder="例如 10" />
+        <button onclick="bulkDailyCheckin()">批量生成工牌 / 일괄 생성</button>
+      </div>
+
+      <div style="margin-top:10px;">
+        <button onclick="dailyCheckin()">生成单个工牌 / 1명 생성</button>
+        <div><small>最近生成 da_id</small></div>
+        <div id="daText">无</div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <button onclick="bindDaily()">绑定工牌到当前趟次 / 명찰 연결</button>
+        <small id="daStatus" class="muted"></small>
+      </div>
+
+      <div id="badgeList" style="margin-top:10px;" class="grid2"></div>
+    </div>
   </div>
-  
+
+  <!-- B2C -->
+  <div id="view-b2c" style="display:none;">
+    <div class="card">
+      <h3>B2C</h3>
+      <button onclick="showB2CPick()">拣货（已上线）</button>
+      <button onclick="comingSoon('B2C 验货打包贴单')">验货打包贴单（待上线）</button>
+      <button onclick="comingSoon('B2C 扫码换单')">扫码换单（待上线）</button>
+      <button onclick="comingSoon('B2C 退件入库')">退件入库（待上线）</button>
+      <button onclick="comingSoon('B2C 退件质检')">退件质检（待上线）</button>
+      <button onclick="comingSoon('B2C 问题件处理')">问题件处理（待上线）</button>
+    </div>
+
+    <!-- B2C Pick 子页面（你已上线的功能） -->
+    <div class="card" id="b2c-pick-card" style="display:none;">
+      <h3>B2C - 拣货</h3>
+      <button onclick="startPicking()">开始拣货 / 시작</button>
+      <button onclick="openScannerWave()">扫码波次 / 웨이브 스캔</button>
+      <button onclick="endPicking()">结束拣货 / 종료</button>
+      <button onclick="hideB2CPick()">返回 B2C 菜单</button>
+    </div>
+  </div>
+
+  <!-- IMPORT -->
+  <div id="view-import" style="display:none;">
+    <div class="card">
+      <h3>进口快件</h3>
+      <button onclick="comingSoon('进口快件 卸货')">卸货（待上线）</button>
+      <button onclick="comingSoon('进口快件 过机扫描')">过机扫描（待上线）</button>
+      <button onclick="comingSoon('进口快件 装柜出库')">装柜出库（待上线）</button>
+    </div>
+  </div>
+
+  <!-- B2B -->
+  <div id="view-b2b" style="display:none;">
+    <div class="card">
+      <h3>B2B</h3>
+      <button onclick="comingSoon('B2B 卸货（散箱/整托/整柜）')">卸货（散箱/整托/整柜）（待上线）</button>
+      <button onclick="comingSoon('B2B 工单操作')">工单操作（待上线）</button>
+      <button onclick="comingSoon('B2B 装车装柜')">装车装柜（待上线）</button>
+    </div>
+  </div>
+
+  <!-- 扫码器（波次/工牌共用） -->
   <div class="card" id="scannerCard" style="display:none;">
-    <h3>扫码波次</h3>
+    <h3 id="scanTitle">扫码</h3>
     <div id="reader" style="width:100%"></div>
     <button onclick="closeScanner()">关闭扫码 / 닫기</button>
   </div>
 
 <script>
+/** ===== Google Form 提交地址 + entry 映射 ===== */
 const FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
-const ENTRY_EVENT = "entry.806252256";
+
+const ENTRY_EVENT  = "entry.806252256";
 const ENTRY_DEVICE = "entry.1221756343";
-const ENTRY_SESSION = "entry.139498995";
-const ENTRY_WAVE = "entry.2002106420";
-const ENTRY_TS = "entry.179441545";
-const ENTRY_DA = "entry.1739228641";
+const ENTRY_SESSION= "entry.139498995";
+const ENTRY_WAVE   = "entry.2002106420";
+const ENTRY_TS     = "entry.179441545";
+const ENTRY_DA     = "entry.1739228641";
 
+const ENTRY_BIZ    = "entry.1934762358";
+const ENTRY_TASK   = "entry.53174481";
+
+/** ===== 状态 ===== */
 let scanner = null;
+let scanMode = null; // 'wave' | 'badge'
 let currentSessionId = localStorage.getItem("pick_session_id") || null;
-let scannedWaves = new Set();     // 本趟已扫波次
-let lastScanAt = 0;              // 防抖：避免一秒内重复触发
 
+let scannedWaves = new Set();
+let lastScanAt = 0;
+
+let currentDaId = localStorage.getItem("da_id") || null;
+
+/** ===== 工具 ===== */
 function nowTs(){ return String(Date.now()); }
 
 function makeDeviceId(){
@@ -87,41 +183,49 @@ function setStatus(msg, ok=true){
   el.textContent = msg;
 }
 
-function beep(){
-  try{
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioCtx();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 880;      // 音高
-    g.gain.value = 0.05;          // 音量（别太大）
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.start();
-    setTimeout(()=>{ o.stop(); ctx.close(); }, 120); // 120ms
-  }catch(e){
-    // 某些环境禁用音频，忽略即可
-  }
-}
-
 function refreshUI(){
   document.getElementById("device").textContent = makeDeviceId();
   document.getElementById("session").textContent = currentSessionId || "无 / 없음";
 }
 refreshUI();
 
-async function submitEvent({event, pick_session_id, wave_id="", da_id=""}){
+function comingSoon(name){
+  alert(`${name}\n还未上线，下一步做这个。`);
+}
+
+/** ===== 视图切换 ===== */
+function showView(view){
+  const views = ["home","daily","b2c","import","b2b"];
+  for(const v of views){
+    document.getElementById("view-"+v).style.display = (v===view) ? "block" : "none";
+    document.getElementById("tab-"+v).classList.toggle("active", v===view);
+  }
+}
+
+function showB2CPick(){
+  document.getElementById("b2c-pick-card").style.display = "block";
+}
+function hideB2CPick(){
+  document.getElementById("b2c-pick-card").style.display = "none";
+}
+
+/** ===== 提交事件到 Google Form（无CORS） ===== */
+async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id=""}){
   const fd = new FormData();
   fd.append(ENTRY_EVENT, event);
   fd.append(ENTRY_DEVICE, makeDeviceId());
   fd.append(ENTRY_SESSION, pick_session_id || "NA");
   fd.append(ENTRY_WAVE, wave_id);
   fd.append(ENTRY_TS, nowTs());
-  fd.append(ENTRY_DA, da_id);     // 新增：日当ID（可空）
+  fd.append(ENTRY_DA, da_id);
+
+  fd.append(ENTRY_BIZ, biz);
+  fd.append(ENTRY_TASK, task);
+
   await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
 }
 
+/** ====== B2C 拣货：开始/扫波次/结束 ====== */
 async function startPicking(){
   try{
     if(currentSessionId){
@@ -131,7 +235,14 @@ async function startPicking(){
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
     scannedWaves = new Set();
-    await submitEvent({ event:"start", pick_session_id: currentSessionId });
+
+    await submitEvent({
+      event:"start",
+      biz:"B2C",
+      task:"PICK",
+      pick_session_id: currentSessionId
+    });
+
     refreshUI();
     setStatus("开始已记录 ✅", true);
   }catch(e){
@@ -145,8 +256,14 @@ async function endPicking(){
       setStatus("没有未结束趟次", false);
       return;
     }
-    await submitEvent({ event:"end", pick_session_id: currentSessionId });
-    setStatus("结束已记录 ✅", true);
+    await submitEvent({
+      event:"end",
+      biz:"B2C",
+      task:"PICK",
+      pick_session_id: currentSessionId
+    });
+
+    setStatus("结束已记录 ✅（请开始下一趟）", true);
     currentSessionId = null;
     localStorage.removeItem("pick_session_id");
     refreshUI();
@@ -155,88 +272,105 @@ async function endPicking(){
   }
 }
 
-async function openScanner(){
+/** ===== 扫描：波次（后置 + 防抖 + 去重 + 弹窗） ===== */
+async function openScannerWave(){
   if(!currentSessionId){
     setStatus("请先开始拣货", false);
     return;
   }
+  scanMode = "wave";
+  document.getElementById("scanTitle").textContent = "扫码波次";
+  await openScannerCommon();
+}
+
+async function openScannerBadge(){
+  if(!currentSessionId){
+    setDaStatus("请先开始拣货再绑定工牌", false);
+    return;
+  }
+  scanMode = "badge";
+  document.getElementById("scanTitle").textContent = "扫码工牌（DA-...）";
+  await openScannerCommon();
+}
+
+async function openScannerCommon(){
   document.getElementById("scannerCard").style.display = "block";
   document.getElementById("reader").innerHTML = "";
 
+  try{ if(scanner){ await scanner.stop(); await scanner.clear(); } }catch(e){}
   scanner = new Html5Qrcode("reader");
 
-  // 先尝试直接用后置摄像头（environment）
-  try{
-    await scanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      async (decodedText) => {
-  const code = decodedText.trim();
+  const onScan = async (decodedText) => {
+    const code = decodedText.trim();
 
-  // 防抖：1秒内只处理一次
-  const now = Date.now();
-  if (now - lastScanAt < 1000) return;
-  lastScanAt = now;
+    // 防抖：1秒只处理一次
+    const now = Date.now();
+    if (now - lastScanAt < 1000) return;
+    lastScanAt = now;
 
-  // 波次格式校验
-  const ok = /^\d{4}-\d{4}-\d+$/.test(code);
-  if(!ok){
-    setStatus("波次格式不对（例：2026-0224-6）", false);
-    return;
-  }
-
-  // 去重：同一趟同一波次只记一次
-  if (scannedWaves.has(code)) {
-    // 震动反馈（手机支持的话）
-    if (navigator.vibrate) navigator.vibrate(80);
-    setStatus("重复波次已忽略 ⏭️ " + code, false);
-    return;
-  }
-
-  // 先把它加入集合，避免并发重复
-  scannedWaves.add(code);
-
-  // 提交事件
-  await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
-
-  beep();
-  // 强反馈：震动 + 弹窗 + 状态
-  if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
-  alert("已记录波次 ✅ " + code);
-  setStatus("已记录波次 ✅ " + code, true);
-}
-    );
-    setStatus("已打开后置摄像头 ✅", true);
-    return;
-  }catch(e){
-    // 如果 facingMode 不支持/被拒绝，就走下面的摄像头列表
-  }
-
-  // fallback：从摄像头列表里挑一个更像后置的
-  const cams = await Html5Qrcode.getCameras();
-  let camId = cams?.[0]?.id;
-
-  // 尝试用名字包含 back/rear/environment 的摄像头
-  if(cams && cams.length){
-    const prefer = cams.find(c => /back|rear|environment/i.test(c.label));
-    if(prefer) camId = prefer.id;
-  }
-
-  await scanner.start(
-    camId,
-    { fps: 10, qrbox: { width: 240, height: 240 } },
-    async (decodedText) => {
-      const code = decodedText.trim();
+    if(scanMode === "wave"){
       const ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){
         setStatus("波次格式不对（例：2026-0224-6）", false);
         return;
       }
-      await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
+      if(scannedWaves.has(code)){
+        setStatus("重复波次已忽略 ⏭️ " + code, false);
+        return;
+      }
+      scannedWaves.add(code);
+
+      await submitEvent({
+        event:"wave",
+        biz:"B2C",
+        task:"PICK",
+        pick_session_id: currentSessionId,
+        wave_id: code
+      });
+
+      alert("已记录波次 ✅ " + code);
       setStatus("已记录波次 ✅ " + code, true);
+      return;
     }
-  );
-  setStatus("已打开摄像头 ✅", true);
+
+    if(scanMode === "badge"){
+      const ok = /^DA-\d{8}-\d+$/.test(code);
+      if(!ok){
+        setDaStatus("这不是有效工牌（DA-YYYYMMDD-xx）", false);
+        return;
+      }
+
+      await submitEvent({
+        event:"bind_daily",
+        biz:"DAILY",
+        task:"BADGE",
+        pick_session_id: currentSessionId,
+        da_id: code
+      });
+
+      currentDaId = code;
+      localStorage.setItem("da_id", currentDaId);
+      refreshDaUI();
+
+      alert("已绑定工牌 ✅ " + code);
+      setDaStatus("已绑定到本趟 ✅", true);
+
+      await closeScanner();
+      return;
+    }
+  };
+
+  // 优先后置
+  try{
+    await scanner.start({ facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      onScan
+    );
+  }catch(e){
+    const cams = await Html5Qrcode.getCameras();
+    const camId = cams?.[0]?.id;
+    await scanner.start(camId, { fps:10, qrbox:{width:240,height:240}}, onScan);
+  }
 }
 
 async function closeScanner(){
@@ -250,9 +384,18 @@ async function closeScanner(){
   document.getElementById("scannerCard").style.display = "none";
 }
 
-let currentDaId = localStorage.getItem("da_id") || null;
+/** ===== 日当：生成/批量生成/绑定 ===== */
+function setDaStatus(msg, ok=true){
+  const el = document.getElementById("daStatus");
+  el.className = ok ? "ok" : "bad";
+  el.textContent = msg;
+}
+function refreshDaUI(){
+  document.getElementById("daText").textContent = currentDaId || "无";
+}
+refreshDaUI();
 
-// 生成 DA-YYYYMMDD-序号（每台手机每天从01开始）
+// 生成 DA-YYYYMMDD-序号（每台设备每天从01开始）
 function makeDaId(){
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -264,95 +407,70 @@ function makeDaId(){
   return `DA-${yyyy}${mm}${dd}-${String(seq).padStart(2,'0')}`;
 }
 
-function setDaStatus(msg, ok=true){
-  const el = document.getElementById("daStatus");
-  el.className = ok ? "ok" : "bad";
-  el.textContent = msg;
-}
-
-function refreshDaUI(){
-  document.getElementById("daText").textContent = currentDaId || "无";
-}
-refreshDaUI();
-
-// 日当签到（生成工牌并写入表）
 async function dailyCheckin(){
   try{
     currentDaId = makeDaId();
     localStorage.setItem("da_id", currentDaId);
 
-    // 写入表：daily_checkin（pick_session_id 用 NA）
-    await submitEvent({ event:"daily_checkin", pick_session_id:"NA", da_id: currentDaId });
+    await submitEvent({
+      event:"daily_checkin",
+      biz:"DAILY",
+      task:"BADGE",
+      pick_session_id:"NA",
+      da_id: currentDaId
+    });
 
     refreshDaUI();
-    alert("工牌已生成 ✅ " + currentDaId + "\n请截图/打印这张页面并贴在日当身上");
+    alert("工牌已生成 ✅ " + currentDaId + "\n（可批量生成后截图/打印）");
     setDaStatus("签到已记录 ✅", true);
   }catch(e){
     setDaStatus("签到失败 ❌ " + e, false);
   }
 }
 
-// 绑定工牌：需要先开始拣货，再扫工牌二维码（DA-...）
-async function bindDaily(){
+async function bulkDailyCheckin(){
   try{
-    if(!currentSessionId){
-      setDaStatus("请先开始拣货再绑定工牌", false);
-      return;
+    const n = parseInt(document.getElementById("daCount").value || "0", 10);
+    if(!n || n < 1) return alert("请输入人数 N（>=1）");
+
+    const listEl = document.getElementById("badgeList");
+    listEl.innerHTML = "";
+    setDaStatus("生成中...", true);
+
+    for(let i=0;i<n;i++){
+      const da = makeDaId();
+
+      await submitEvent({
+        event:"daily_checkin",
+        biz:"DAILY",
+        task:"BADGE",
+        pick_session_id:"NA",
+        da_id: da
+      });
+
+      const box = document.createElement("div");
+      box.style.border = "1px solid #ddd";
+      box.style.borderRadius = "12px";
+      box.style.padding = "10px";
+      box.innerHTML = `<div style="font-weight:600;margin-bottom:6px;">${da}</div><div id="qr_${da}"></div>`;
+      listEl.appendChild(box);
+
+      new QRCode(document.getElementById(`qr_${da}`), { text: da, width: 160, height: 160 });
+      currentDaId = da;
+      localStorage.setItem("da_id", currentDaId);
     }
-    // 打开扫码，但此处扫的是 da_id（工牌）
-    await openScannerBadge();
-  }catch(e){
-    setDaStatus("绑定失败 ❌ " + e, false);
-  }
-}
 
-// 单独的“扫工牌”扫码器（不和波次混）
-async function openScannerBadge(){
-  document.getElementById("scannerCard").style.display = "block";
-  document.getElementById("reader").innerHTML = "";
-
-  // 关闭旧scanner
-  try{ if(scanner){ await scanner.stop(); await scanner.clear(); } }catch(e){}
-  scanner = new Html5Qrcode("reader");
-
-  // 优先后置
-  const onScan = async (decodedText) => {
-    const code = decodedText.trim();
-    // 基本校验：DA-YYYYMMDD-xx
-    const ok = /^DA-\d{8}-\d+$/.test(code);
-    if(!ok){
-      setDaStatus("这不是有效工牌（DA-YYYYMMDD-xx）", false);
-      return;
-    }
-
-    // 写入表：bind_daily
-    await submitEvent({ event:"bind_daily", pick_session_id: currentSessionId, da_id: code });
-
-    currentDaId = code;
-    localStorage.setItem("da_id", currentDaId);
     refreshDaUI();
-
-    alert("已绑定工牌 ✅ " + code);
-    setDaStatus("已绑定到本趟 ✅", true);
-
-    // 绑定成功后关闭扫码
-    await closeScanner();
-  };
-
-  try{
-    await scanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      onScan
-    );
+    setDaStatus(`批量生成完成 ✅ 共 ${n} 个（可截图/打印）`, true);
+    alert("批量工牌已生成 ✅ 你可以直接截图/打印这个页面。");
   }catch(e){
-    // fallback
-    const cams = await Html5Qrcode.getCameras();
-    const camId = cams?.[0]?.id;
-    await scanner.start(camId, { fps:10, qrbox:{width:240,height:240}}, onScan);
+    setDaStatus("批量生成失败 ❌ " + e, false);
   }
 }
 
+async function bindDaily(){
+  await openScannerBadge();
+}
 </script>
 </body>
 </html>
