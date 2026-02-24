@@ -8,23 +8,61 @@
   <script src="https://unpkg.com/html5-qrcode"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <style>
-    body{font-family:system-ui;margin:16px}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-    .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
-    .tab.active{border-color:#000}
-    .card{border:1px solid #ddd;border-radius:12px;padding:12px;margin:10px 0}
-    button{padding:12px 14px;margin:6px 0;width:100%;font-size:16px}
-    input{padding:10px;width:100%;font-size:16px;margin:6px 0}
-    small{color:#666}
-    .ok{color:#0a0}
-    .bad{color:#b00}
-    .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-    .muted{color:#666}
-  </style>
+<style>
+  body{font-family:system-ui;margin:16px}
+
+  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .title{font-size:22px;font-weight:800}
+  .subtitle{font-size:12px;color:#666;margin-top:2px}
+  .pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px;color:#333;display:inline-block}
+
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
+  .tab.active{border-color:#000}
+
+  .card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
+
+  button{
+    padding:14px 14px;
+    margin:8px 0;
+    width:100%;
+    font-size:16px;
+    border-radius:14px;
+    border:1px solid #ddd;
+    background:#fff;
+    cursor:pointer;
+  }
+  button.primary{
+    border-color:#000;
+    background:#000;
+    color:#fff;
+    font-weight:700;
+  }
+  button.ghost{
+    background:#fff;
+    border-style:dashed;
+  }
+
+  input{padding:10px;width:100%;font-size:16px;margin:6px 0}
+  small{color:#666}
+  .ok{color:#0a0}
+  .bad{color:#b00}
+  .muted{color:#666}
+
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .gridHome{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .gridHome button{height:92px;text-align:left;line-height:1.15}
+  .gridHome small{color:rgba(255,255,255,.85)}
+</style>
 </head>
 <body>
-  <h2>仓库作业 / 창고 작업</h2>
+<div class="header">
+  <div>
+    <div class="title">仓库作业 / 창고 작업</div>
+    <div class="subtitle">CK 仓库 · Incheon</div>
+  </div>
+  <div class="pill" id="netPill">Online</div>
+</div>
 
   <!-- 顶部导航 -->
   <div class="tabs">
