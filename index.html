@@ -78,6 +78,24 @@ function setStatus(msg, ok=true){
   el.textContent = msg;
 }
 
+function beep(){
+  try{
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880;      // 音高
+    g.gain.value = 0.05;          // 音量（别太大）
+    o.connect(g);
+    g.connect(ctx.destination);
+    o.start();
+    setTimeout(()=>{ o.stop(); ctx.close(); }, 120); // 120ms
+  }catch(e){
+    // 某些环境禁用音频，忽略即可
+  }
+}
+
 function refreshUI(){
   document.getElementById("device").textContent = makeDeviceId();
   document.getElementById("session").textContent = currentSessionId || "无 / 없음";
@@ -171,6 +189,7 @@ async function openScanner(){
   // 提交事件
   await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
 
+  beep();
   // 强反馈：震动 + 弹窗 + 状态
   if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
   alert("已记录波次 ✅ " + code);
