@@ -3,115 +3,129 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Warehouse Ops Mini App</title>
+  <title>仓库作业 / 창고 작업</title>
 
   <script src="https://unpkg.com/html5-qrcode"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-<style>
-  body{font-family:system-ui;margin:16px}
+  <style>
+    body{font-family:system-ui;margin:16px}
 
-  .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-  .title{font-size:22px;font-weight:800}
-  .subtitle{font-size:12px;color:#666;margin-top:2px}
-  .pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px;color:#333;display:inline-block}
+    .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .title{font-size:22px;font-weight:800}
+    .subtitle{font-size:12px;color:#666;margin-top:2px}
+    .pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px;color:#333;display:inline-block}
 
-  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-  .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
-  .tab.active{border-color:#000}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
+    .tab.active{border-color:#000}
 
-  .card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
+    .card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
 
-  button{
-    padding:14px 14px;
-    margin:8px 0;
-    width:100%;
-    font-size:16px;
-    border-radius:14px;
-    border:1px solid #ddd;
-    background:#fff;
-    cursor:pointer;
-  }
-  button.primary{
-    border-color:#000;
-    background:#000;
-    color:#fff;
-    font-weight:700;
-  }
-  button.ghost{
-    background:#fff;
-    border-style:dashed;
-  }
+    button{
+      padding:14px 14px;
+      margin:8px 0;
+      width:100%;
+      font-size:16px;
+      border-radius:14px;
+      border:1px solid #ddd;
+      background:#fff;
+      cursor:pointer;
+    }
+    button.primary{
+      border-color:#000;
+      background:#000;
+      color:#fff;
+      font-weight:700;
+    }
+    button.ghost{
+      background:#fff;
+      border-style:dashed;
+    }
 
-  input{padding:10px;width:100%;font-size:16px;margin:6px 0}
-  small{color:#666}
-  .ok{color:#0a0}
-  .bad{color:#b00}
-  .muted{color:#666}
+    input{padding:10px;width:100%;font-size:16px;margin:6px 0}
+    small{color:#666}
+    .ok{color:#0a0}
+    .bad{color:#b00}
+    .muted{color:#666}
 
-  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  .gridHome{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  .gridHome button{height:92px;text-align:left;line-height:1.15}
-  .gridHome small{color:rgba(255,255,255,.85)}
-</style>
+    .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+    .gridHome{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+    .gridHome button{height:92px;text-align:left;line-height:1.15}
+    .gridHome small{color:rgba(255,255,255,.85)}
+  </style>
 </head>
 <body>
-<div class="header">
-  <div>
-    <div class="title">仓库作业 / 창고 작업</div>
-    <div class="subtitle">CK 仓库 · Incheon</div>
+  <div class="header">
+    <div>
+      <div class="title">仓库作业 / 창고 작업</div>
+      <div class="subtitle">CK 仓库 · Incheon</div>
+    </div>
+    <div class="pill" id="netPill">Online</div>
   </div>
-  <div class="pill" id="netPill">Online</div>
-</div>
 
   <!-- 顶部导航 -->
   <div class="tabs">
-    <div class="tab active" id="tab-home" onclick="showView('home')">主页 Home</div>
-    <div class="tab" id="tab-daily" onclick="showView('daily')">日当工牌</div>
+    <div class="tab active" id="tab-home" onclick="showView('home')">主页 <small>홈</small></div>
+    <div class="tab" id="tab-daily" onclick="showView('daily')">日当工牌 <small>일용직 명찰</small></div>
     <div class="tab" id="tab-b2c" onclick="showView('b2c')">B2C</div>
-    <div class="tab" id="tab-import" onclick="showView('import')">进口快件</div>
+    <div class="tab" id="tab-import" onclick="showView('import')">进口快件 <small>수입 택배</small></div>
     <div class="tab" id="tab-b2b" onclick="showView('b2b')">B2B</div>
   </div>
 
   <!-- 设备状态 -->
   <div class="card">
-    <small>device_id（每台手机固定）</small>
+    <small>device_id（每台手机固定） / 기기ID</small>
     <div id="device"></div>
-    <small>当前 pick_session_id（本趟作业ID）</small>
+    <small>当前 pick_session_id（本趟作业ID） / 현재 작업ID</small>
     <div id="session"></div>
-    <small id="status" class="muted"></small>
+    <div id="status" class="pill" style="margin-top:8px;">Ready</div>
   </div>
 
   <!-- HOME -->
   <div id="view-home">
     <div class="card">
-      <h3>入口</h3>
-      <button onclick="showView('daily')">日当工牌 / 일용직 명찰</button>
-      <button onclick="showView('b2c')">B2C 作业</button>
-      <button onclick="showView('import')">进口快件</button>
-      <button onclick="showView('b2b')">B2B 作业</button>
+      <h3>入口 / 메뉴</h3>
+      <div class="gridHome">
+        <button class="primary" onclick="showView('daily')">
+          日当工牌 <small>일용직 명찰</small><br>
+          <small>批量生成/绑定</small>
+        </button>
+        <button class="primary" onclick="showView('b2c')">
+          B2C <small>B2C</small><br>
+          <small>拣货 / 验货打包</small>
+        </button>
+        <button class="primary" onclick="showView('import')">
+          进口快件 <small>수입 택배</small><br>
+          <small>卸货/过机/装柜</small>
+        </button>
+        <button class="primary" onclick="showView('b2b')">
+          B2B <small>B2B</small><br>
+          <small>卸货/工单/装车</small>
+        </button>
+      </div>
     </div>
   </div>
 
   <!-- DAILY -->
   <div id="view-daily" style="display:none;">
     <div class="card">
-      <h3>日当工牌 / 일용직</h3>
+      <h3>日当工牌 / 일용직 명찰</h3>
 
       <div style="margin-top:8px;">
-        <small>今天日当人数 N</small>
+        <small>今天日当人数 N / 오늘 인원</small>
         <input id="daCount" type="number" min="1" max="50" placeholder="例如 10" />
-        <button onclick="bulkDailyCheckin()">批量生成工牌 / 일괄 생성</button>
+        <button class="primary" onclick="bulkDailyCheckin()">批量生成工牌 <small>일괄 생성</small></button>
       </div>
 
       <div style="margin-top:10px;">
-        <button onclick="dailyCheckin()">生成单个工牌 / 1명 생성</button>
-        <div><small>最近生成 da_id</small></div>
+        <button onclick="dailyCheckin()">生成单个工牌 <small>1명 생성</small></button>
+        <div><small>最近生成 da_id / 최근 명찰</small></div>
         <div id="daText">无</div>
       </div>
 
       <div style="margin-top:10px;">
-        <button onclick="bindDaily()">绑定工牌到当前趟次 / 명찰 연결</button>
+        <button onclick="bindDaily()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
         <small id="daStatus" class="muted"></small>
       </div>
 
@@ -123,31 +137,31 @@
   <div id="view-b2c" style="display:none;">
     <div class="card">
       <h3>B2C</h3>
-      <button onclick="showB2CPick()">拣货（已上线）</button>
-      <button onclick="comingSoon('B2C 验货打包贴单')">验货打包贴单（待上线）</button>
-      <button onclick="comingSoon('B2C 扫码换单')">扫码换单（待上线）</button>
-      <button onclick="comingSoon('B2C 退件入库')">退件入库（待上线）</button>
-      <button onclick="comingSoon('B2C 退件质检')">退件质检（待上线）</button>
-      <button onclick="comingSoon('B2C 问题件处理')">问题件处理（待上线）</button>
+      <button class="primary" onclick="showB2CPick()">拣货（已上线） <small>피킹(사용중)</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 验货打包贴单 / 검수·포장·라벨')">验货打包贴单（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 扫码换单 / 스캔 환라벨')">扫码换单（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 退件入库 / 반품 입고')">退件入库（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 退件质检 / 반품 검품')">退件质检（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 问题件处理 / 문제건 처리')">问题件处理（待上线） <small>준비중</small></button>
     </div>
 
-    <!-- B2C Pick 子页面（你已上线的功能） -->
+    <!-- B2C Pick -->
     <div class="card" id="b2c-pick-card" style="display:none;">
-      <h3>B2C - 拣货</h3>
-      <button onclick="startPicking()">开始拣货 / 시작</button>
-      <button onclick="openScannerWave()">扫码波次 / 웨이브 스캔</button>
-      <button onclick="endPicking()">结束拣货 / 종료</button>
-      <button onclick="hideB2CPick()">返回 B2C 菜单</button>
+      <h3>B2C - 拣货 / 피킹</h3>
+      <button class="primary" onclick="startPicking()">开始拣货 <small>시작</small></button>
+      <button class="primary" onclick="openScannerWave()">扫码波次 <small>웨이브 스캔</small></button>
+      <button class="primary" onclick="endPicking()">结束拣货 <small>종료</small></button>
+      <button onclick="hideB2CPick()">返回 B2C 菜单 <small>메뉴로</small></button>
     </div>
   </div>
 
   <!-- IMPORT -->
   <div id="view-import" style="display:none;">
     <div class="card">
-      <h3>进口快件</h3>
-      <button onclick="comingSoon('进口快件 卸货')">卸货（待上线）</button>
-      <button onclick="comingSoon('进口快件 过机扫描')">过机扫描（待上线）</button>
-      <button onclick="comingSoon('进口快件 装柜出库')">装柜出库（待上线）</button>
+      <h3>进口快件 / 수입 택배</h3>
+      <button class="ghost" onclick="comingSoon('进口快件 卸货 / 하역')">卸货（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('进口快件 过机扫描 / 컨베이어 스캔')">过机扫描（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('进口快件 装柜出库 / 상차·출고')">装柜出库（待上线） <small>준비중</small></button>
     </div>
   </div>
 
@@ -155,21 +169,21 @@
   <div id="view-b2b" style="display:none;">
     <div class="card">
       <h3>B2B</h3>
-      <button onclick="comingSoon('B2B 卸货（散箱/整托/整柜）')">卸货（散箱/整托/整柜）（待上线）</button>
-      <button onclick="comingSoon('B2B 工单操作')">工单操作（待上线）</button>
-      <button onclick="comingSoon('B2B 装车装柜')">装车装柜（待上线）</button>
+      <button class="ghost" onclick="comingSoon('B2B 卸货（散箱/整托/整柜）')">卸货（散箱/整托/整柜）（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2B 工单操作')">工单操作（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2B 装车装柜')">装车装柜（待上线） <small>준비중</small></button>
     </div>
   </div>
 
-  <!-- 扫码器（波次/工牌共用） -->
+  <!-- 扫码器 -->
   <div class="card" id="scannerCard" style="display:none;">
-    <h3 id="scanTitle">扫码</h3>
+    <h3 id="scanTitle">扫码 / 스캔</h3>
     <div id="reader" style="width:100%"></div>
-    <button onclick="closeScanner()">关闭扫码 / 닫기</button>
+    <button onclick="closeScanner()">关闭扫码 <small>닫기</small></button>
   </div>
 
 <script>
-/** ===== Google Form 提交地址 + entry 映射 ===== */
+/** ===== Google Form ===== */
 const FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
 
 const ENTRY_EVENT  = "entry.806252256";
@@ -217,7 +231,7 @@ function makePickSessionId(){
 
 function setStatus(msg, ok=true){
   const el = document.getElementById("status");
-  el.className = ok ? "ok" : "bad";
+  el.className = "pill " + (ok ? "ok" : "bad");
   el.textContent = msg;
 }
 
@@ -228,8 +242,19 @@ function refreshUI(){
 refreshUI();
 
 function comingSoon(name){
-  alert(`${name}\n还未上线，下一步做这个。`);
+  alert(`${name}\n还未上线 / 아직 준비중`);
 }
+
+/** ===== 网络状态 ===== */
+function refreshNet(){
+  const el = document.getElementById("netPill");
+  if(!el) return;
+  el.textContent = navigator.onLine ? "Online" : "Offline";
+  el.style.borderColor = navigator.onLine ? "#0a0" : "#b00";
+}
+window.addEventListener("online", refreshNet);
+window.addEventListener("offline", refreshNet);
+refreshNet();
 
 /** ===== 视图切换 ===== */
 function showView(view){
@@ -240,14 +265,10 @@ function showView(view){
   }
 }
 
-function showB2CPick(){
-  document.getElementById("b2c-pick-card").style.display = "block";
-}
-function hideB2CPick(){
-  document.getElementById("b2c-pick-card").style.display = "none";
-}
+function showB2CPick(){ document.getElementById("b2c-pick-card").style.display = "block"; }
+function hideB2CPick(){ document.getElementById("b2c-pick-card").style.display = "none"; }
 
-/** ===== 提交事件到 Google Form（无CORS） ===== */
+/** ===== 提交事件 ===== */
 async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id=""}){
   const fd = new FormData();
   fd.append(ENTRY_EVENT, event);
@@ -263,7 +284,7 @@ async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id
   await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
 }
 
-/** ====== B2C 拣货：开始/扫波次/结束 ====== */
+/** ====== B2C 拣货 ====== */
 async function startPicking(){
   try{
     if(currentSessionId){
@@ -274,60 +295,49 @@ async function startPicking(){
     localStorage.setItem("pick_session_id", currentSessionId);
     scannedWaves = new Set();
 
-    await submitEvent({
-      event:"start",
-      biz:"B2C",
-      task:"PICK",
-      pick_session_id: currentSessionId
-    });
-
+    await submitEvent({ event:"start", biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
     refreshUI();
-    setStatus("开始已记录 ✅", true);
+    setStatus("开始已记录 ✅ / 시작 기록됨", true);
   }catch(e){
-    setStatus("开始失败 ❌ " + e, false);
+    setStatus("开始失败 ❌ / 시작 실패 " + e, false);
   }
 }
 
 async function endPicking(){
   try{
     if(!currentSessionId){
-      setStatus("没有未结束趟次", false);
+      setStatus("没有未结束趟次 / 열린 세션 없음", false);
       return;
     }
-    await submitEvent({
-      event:"end",
-      biz:"B2C",
-      task:"PICK",
-      pick_session_id: currentSessionId
-    });
+    await submitEvent({ event:"end", biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
 
-    setStatus("结束已记录 ✅（请开始下一趟）", true);
+    setStatus("结束已记录 ✅（下一趟请点开始）", true);
     currentSessionId = null;
     localStorage.removeItem("pick_session_id");
     refreshUI();
   }catch(e){
-    setStatus("结束失败 ❌ " + e, false);
+    setStatus("结束失败 ❌ / 종료 실패 " + e, false);
   }
 }
 
-/** ===== 扫描：波次（后置 + 防抖 + 去重 + 弹窗） ===== */
+/** ===== 扫码：波次 / 工牌 ===== */
 async function openScannerWave(){
   if(!currentSessionId){
-    setStatus("请先开始拣货", false);
+    setStatus("请先开始拣货 / 먼저 시작", false);
     return;
   }
   scanMode = "wave";
-  document.getElementById("scanTitle").textContent = "扫码波次";
+  document.getElementById("scanTitle").innerHTML = "扫码波次 <small>웨이브 스캔</small>";
   await openScannerCommon();
 }
 
 async function openScannerBadge(){
   if(!currentSessionId){
-    setDaStatus("请先开始拣货再绑定工牌", false);
+    setDaStatus("请先开始拣货再绑定 / 먼저 시작", false);
     return;
   }
   scanMode = "badge";
-  document.getElementById("scanTitle").textContent = "扫码工牌（DA-...）";
+  document.getElementById("scanTitle").innerHTML = "扫码工牌（DA-...） <small>명찰 스캔</small>";
   await openScannerCommon();
 }
 
@@ -358,13 +368,7 @@ async function openScannerCommon(){
       }
       scannedWaves.add(code);
 
-      await submitEvent({
-        event:"wave",
-        biz:"B2C",
-        task:"PICK",
-        pick_session_id: currentSessionId,
-        wave_id: code
-      });
+      await submitEvent({ event:"wave", biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
 
       alert("已记录波次 ✅ " + code);
       setStatus("已记录波次 ✅ " + code, true);
@@ -374,17 +378,11 @@ async function openScannerCommon(){
     if(scanMode === "badge"){
       const ok = /^DA-\d{8}-\d+$/.test(code);
       if(!ok){
-        setDaStatus("这不是有效工牌（DA-YYYYMMDD-xx）", false);
+        setDaStatus("不是有效工牌（DA-YYYYMMDD-xx）", false);
         return;
       }
 
-      await submitEvent({
-        event:"bind_daily",
-        biz:"DAILY",
-        task:"BADGE",
-        pick_session_id: currentSessionId,
-        da_id: code
-      });
+      await submitEvent({ event:"bind_daily", biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: code });
 
       currentDaId = code;
       localStorage.setItem("da_id", currentDaId);
@@ -398,12 +396,9 @@ async function openScannerCommon(){
     }
   };
 
-  // 优先后置
+  // 后置优先
   try{
-    await scanner.start({ facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      onScan
-    );
+    await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 240, height: 240 } }, onScan);
   }catch(e){
     const cams = await Html5Qrcode.getCameras();
     const camId = cams?.[0]?.id;
@@ -422,7 +417,7 @@ async function closeScanner(){
   document.getElementById("scannerCard").style.display = "none";
 }
 
-/** ===== 日当：生成/批量生成/绑定 ===== */
+/** ===== 日当工牌 ===== */
 function setDaStatus(msg, ok=true){
   const el = document.getElementById("daStatus");
   el.className = ok ? "ok" : "bad";
@@ -450,19 +445,13 @@ async function dailyCheckin(){
     currentDaId = makeDaId();
     localStorage.setItem("da_id", currentDaId);
 
-    await submitEvent({
-      event:"daily_checkin",
-      biz:"DAILY",
-      task:"BADGE",
-      pick_session_id:"NA",
-      da_id: currentDaId
-    });
+    await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: currentDaId });
 
     refreshDaUI();
-    alert("工牌已生成 ✅ " + currentDaId + "\n（可批量生成后截图/打印）");
-    setDaStatus("签到已记录 ✅", true);
+    alert("工牌已生成 ✅ " + currentDaId + "\n可批量生成后截图/打印");
+    setDaStatus("已记录 ✅", true);
   }catch(e){
-    setDaStatus("签到失败 ❌ " + e, false);
+    setDaStatus("失败 ❌ " + e, false);
   }
 }
 
@@ -478,19 +467,13 @@ async function bulkDailyCheckin(){
     for(let i=0;i<n;i++){
       const da = makeDaId();
 
-      await submitEvent({
-        event:"daily_checkin",
-        biz:"DAILY",
-        task:"BADGE",
-        pick_session_id:"NA",
-        da_id: da
-      });
+      await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
 
       const box = document.createElement("div");
       box.style.border = "1px solid #ddd";
       box.style.borderRadius = "12px";
       box.style.padding = "10px";
-      box.innerHTML = `<div style="font-weight:600;margin-bottom:6px;">${da}</div><div id="qr_${da}"></div>`;
+      box.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${da}</div><div id="qr_${da}"></div>`;
       listEl.appendChild(box);
 
       new QRCode(document.getElementById(`qr_${da}`), { text: da, width: 160, height: 160 });
