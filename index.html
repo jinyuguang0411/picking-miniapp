@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Picking Mini App</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body{font-family:system-ui;margin:16px}
+    button{padding:12px 14px;margin:6px 0;width:100%;font-size:16px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:12px;margin:10px 0}
+    small{color:#666}
+    .ok{color:#0a0}
+    .bad{color:#b00}
+  </style>
+</head>
+<body>
+  <h2>拣货 / 피킹</h2>
+
+  <div class="card">
+    <small>设备ID（每台手机自动固定）</small>
+    <div id="device"></div>
+    <small>当前拣货趟次 pick_session_id</small>
+    <div id="session"></div>
+    <small id="status"></small>
+  </div>
+
+  <div class="card">
+    <button onclick="startPicking()">开始拣货 / 시작</button>
+    <button onclick="openScanner()">扫码波次 / 웨이브 스캔</button>
+    <button onclick="endPicking()">结束拣货 / 종료</button>
+  </div>
+
+  <div class="card" id="scannerCard" style="display:none;">
+    <h3>扫码波次</h3>
+    <div id="reader" style="width:100%"></div>
+    <button onclick="closeScanner()">关闭扫码 / 닫기</button>
+  </div>
+
+<script>
+const FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
+const ENTRY_EVENT = "entry.806252256";
+const ENTRY_DEVICE = "entry.1221756343";
+const ENTRY_SESSION = "entry.139498995";
+const ENTRY_WAVE = "entry.2002106420";
+const ENTRY_TS = "entry.179441545";
+
+let scanner = null;
+let currentSessionId = localStorage.getItem("pick_session_id") || null;
+
+function nowTs(){ return String(Date.now()); }
+
+function makeDeviceId(){
+  let id = localStorage.getItem("device_id");
+  if(!id){
+    id = "DEV-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString().slice(-6);
+    localStorage.setItem("device_id", id);
+  }
+  return id;
+}
+
+function makePickSessionId(){
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mi = String(d.getMinutes()).padStart(2,'0');
+  const ss = String(d.getSeconds()).padStart(2,'0');
+  return `PS-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${makeDeviceId().slice(-6)}`;
+}
+
+function setStatus(msg, ok=true){
+  const el = document.getElementById("status");
+  el.className = ok ? "ok" : "bad";
+  el.textContent = msg;
+}
+
+function refreshUI(){
+  document.getElementById("device").textContent = makeDeviceId();
+  document.getElementById("session").textContent = currentSessionId || "无 / 없음";
+}
+refreshUI();
+
+async function submitEvent({event, pick_session_id, wave_id=""}){
+  const fd = new FormData();
+  fd.append(ENTRY_EVENT, event);
+  fd.append(ENTRY_DEVICE, makeDeviceId());
+  fd.append(ENTRY_SESSION, pick_session_id);
+  fd.append(ENTRY_WAVE, wave_id);
+  fd.append(ENTRY_TS, nowTs());
+  await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
+}
+
+async function startPicking(){
+  try{
+    if(currentSessionId){
+      setStatus("继续上一趟 / 이전 세션 계속", true);
+      return;
+    }
+    currentSessionId = makePickSessionId();
+    localStorage.setItem("pick_session_id", currentSessionId);
+    await submitEvent({ event:"start", pick_session_id: currentSessionId });
+    refreshUI();
+    setStatus("开始已记录 ✅", true);
+  }catch(e){
+    setStatus("开始失败 ❌ " + e, false);
+  }
+}
+
+async function endPicking(){
+  try{
+    if(!currentSessionId){
+      setStatus("没有未结束趟次", false);
+      return;
+    }
+    await submitEvent({ event:"end", pick_session_id: currentSessionId });
+    setStatus("结束已记录 ✅", true);
+    currentSessionId = null;
+    localStorage.removeItem("pick_session_id");
+    refreshUI();
+  }catch(e){
+    setStatus("结束失败 ❌ " + e, false);
+  }
+}
+
+async function openScanner(){
+  if(!currentSessionId){
+    setStatus("请先开始拣货", false);
+    return;
+  }
+  document.getElementById("scannerCard").style.display = "block";
+  document.getElementById("reader").innerHTML = "";
+
+  scanner = new Html5Qrcode("reader");
+  const cams = await Html5Qrcode.getCameras();
+  const camId = cams?.[0]?.id;
+
+  await scanner.start(
+    camId,
+    { fps: 10, qrbox: { width: 240, height: 240 } },
+    async (decodedText) => {
+      const code = decodedText.trim();
+      const ok = /^\d{4}-\d{4}-\d+$/.test(code);
+      if(!ok){
+        setStatus("波次格式不对（例：2026-0224-6）", false);
+        return;
+      }
+      await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
+      setStatus("已记录波次 ✅ " + code, true);
+    }
+  );
+}
+
+async function closeScanner(){
+  try{
+    if(scanner){
+      await scanner.stop();
+      await scanner.clear();
+      scanner = null;
+    }
+  }catch(e){}
+  document.getElementById("scannerCard").style.display = "none";
+}
+</script>
+</body>
+</html>
