@@ -10,7 +10,6 @@
 
   <style>
     body{font-family:system-ui;margin:16px}
-
     .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
     .title{font-size:22px;font-weight:800}
     .subtitle{font-size:12px;color:#666;margin-top:2px}
@@ -23,27 +22,15 @@
     .card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
 
     button{
-      padding:14px 14px;
-      margin:8px 0;
-      width:100%;
-      font-size:16px;
-      border-radius:14px;
-      border:1px solid #ddd;
-      background:#fff;
-      cursor:pointer;
+      padding:14px 14px;margin:8px 0;width:100%;
+      font-size:16px;border-radius:14px;border:1px solid #ddd;background:#fff;cursor:pointer;
     }
-    button.primary{
-      border-color:#000;
-      background:#000;
-      color:#fff;
-      font-weight:700;
-    }
-    button.ghost{
-      background:#fff;
-      border-style:dashed;
-    }
+    button.primary{border-color:#000;background:#000;color:#fff;font-weight:700;}
+    button.ghost{background:#fff;border-style:dashed;}
 
-    input{padding:10px;width:100%;font-size:16px;margin:6px 0}
+    input, textarea{padding:10px;width:100%;font-size:16px;margin:6px 0;box-sizing:border-box}
+    textarea{min-height:90px;resize:vertical}
+
     small{color:#666}
     .ok{color:#0a0}
     .bad{color:#b00}
@@ -64,16 +51,14 @@
     <div class="pill" id="netPill">Online</div>
   </div>
 
-  <!-- 顶部导航 -->
   <div class="tabs">
     <div class="tab active" id="tab-home" onclick="showView('home')">主页 <small>홈</small></div>
-    <div class="tab" id="tab-daily" onclick="showView('daily')">日当工牌 <small>일용직 명찰</small></div>
+    <div class="tab" id="tab-daily" onclick="showView('daily')">工牌 <small>명찰</small></div>
     <div class="tab" id="tab-b2c" onclick="showView('b2c')">B2C</div>
     <div class="tab" id="tab-import" onclick="showView('import')">进口快件 <small>수입 택배</small></div>
     <div class="tab" id="tab-b2b" onclick="showView('b2b')">B2B</div>
   </div>
 
-  <!-- 设备状态 -->
   <div class="card">
     <small>device_id（每台手机固定） / 기기ID</small>
     <div id="device"></div>
@@ -88,53 +73,69 @@
       <h3>入口 / 메뉴</h3>
       <div class="gridHome">
         <button class="primary" onclick="showView('daily')">
-          日当工牌 <small>일용직 명찰</small><br>
-          <small>批量生成/绑定</small>
+          工牌 <small>명찰</small><br><small>日当/员工 批量生成</small>
         </button>
         <button class="primary" onclick="showView('b2c')">
-          B2C <small>B2C</small><br>
-          <small>拣货 / 换单贴单</small>
+          B2C<br><small>拣货 / 换单贴单</small>
         </button>
         <button class="primary" onclick="showView('import')">
-          进口快件 <small>수입 택배</small><br>
-          <small>卸货/过机/装柜</small>
+          进口快件 <small>수입 택배</small><br><small>卸货/过机/装柜</small>
         </button>
         <button class="primary" onclick="showView('b2b')">
-          B2B <small>B2B</small><br>
-          <small>卸货/工单/装车</small>
+          B2B<br><small>卸货/工单/装车</small>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- DAILY -->
+  <!-- DAILY / BADGES -->
   <div id="view-daily" style="display:none;">
     <div class="card">
       <h3>日当工牌 / 일용직 명찰</h3>
 
       <div style="margin-top:8px;">
         <small>今天日当人数 N / 오늘 인원</small>
-        <input id="daCount" type="number" min="1" max="80" placeholder="例如 10" />
-        <button class="primary" onclick="bulkDailyCheckin()">批量生成工牌 <small>일괄 생성</small></button>
+        <input id="daCount" type="number" min="1" max="200" placeholder="例如 10" />
+        <button class="primary" onclick="bulkDailyCheckin()">批量生成日当工牌 <small>일괄 생성</small></button>
       </div>
 
       <div style="margin-top:10px;">
-        <button onclick="dailyCheckin()">生成单个工牌 <small>1명 생성</small></button>
-        <div><small>最近生成 da_id / 최근 명찰</small></div>
+        <button onclick="dailyCheckin()">生成单个日当工牌 <small>1명 생성</small></button>
+        <div><small>最近生成工牌 / 최근 명찰</small></div>
         <div id="daText">无</div>
       </div>
 
       <div style="margin-top:10px;">
-        <button onclick="bindDailyToSession()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
+        <button onclick="bindBadgeToSession()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
         <small id="daStatus" class="muted"></small>
       </div>
 
       <div id="badgeList" style="margin-top:10px;" class="grid2"></div>
+    </div>
 
-      <div class="card" style="margin-top:14px;">
-        <h4>员工工牌 / 직원 명찰</h4>
-        <div class="muted">员工建议格式：EMP-001 / EMP-002 ...（可用外部二维码生成器先做，后续我再帮你加批量员工工牌生成）</div>
+    <div class="card">
+      <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
+      <div class="muted">
+        把员工名字一行一个粘贴进来，点击生成。二维码内容将是 EMP-001|张三 这种格式。
+        <br>한국인 이름도 그대로 넣으면 됩니다.
       </div>
+
+      <small>员工姓名列表（每行一个） / 이름 목록</small>
+      <textarea id="empNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
+
+      <div class="grid2">
+        <div>
+          <small>起始编号 / 시작 번호</small>
+          <input id="empStart" type="number" min="1" max="999" value="1" />
+        </div>
+        <div>
+          <small>位数（001/01） / 자릿수</small>
+          <input id="empPad" type="number" min="2" max="4" value="3" />
+        </div>
+      </div>
+
+      <button class="primary" onclick="generateEmployeeBadges()">批量生成员工工牌 <small>직원 명찰 생성</small></button>
+      <div id="empBadgeList" style="margin-top:10px;" class="grid2"></div>
     </div>
   </div>
 
@@ -151,14 +152,14 @@
       <button class="ghost" onclick="comingSoon('B2C 问题件处理 / 문제건 처리')">问题件处理（待上线） <small>준비중</small></button>
     </div>
 
-    <!-- B2C Pick -->
+    <!-- B2C PICK -->
     <div class="card" id="b2c-pick-card" style="display:none;">
       <h3>B2C - 拣货 / 피킹</h3>
 
       <button class="primary" onclick="startPicking()">开始拣货 <small>시작</small></button>
 
-      <button class="primary" onclick="joinWork('B2C','PICK')">加入作业 <small>참여(입장)</small></button>
-      <button class="primary" onclick="leaveWork('B2C','PICK')">退出作业 <small>퇴장(종료)</small></button>
+      <button class="primary" onclick="joinWork('B2C','PICK')">加入作业（扫工牌） <small>참여(입장)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','PICK')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
 
       <button class="primary" onclick="openScannerWave()">扫码波次 <small>웨이브 스캔</small></button>
       <button class="primary" onclick="endPicking()">结束拣货 <small>종료</small></button>
@@ -166,19 +167,21 @@
       <button onclick="hideB2CPick()">返回 B2C 菜单 <small>메뉴로</small></button>
 
       <div class="pill" style="margin-top:10px;">
-        提示：多人配合时，每个人加入一次/退出一次（join/leave），不会增加每件扫码成本。
+        多人配合：每个人加入一次/退出一次（join/leave），用于计算人时（人效=产出/人时）。
       </div>
     </div>
 
-    <!-- B2C RELABEL (no extra scan) -->
+    <!-- B2C RELABEL (no extra scan, only start/end + join/leave) -->
     <div class="card" id="b2c-relabel-card" style="display:none;">
       <h3>B2C - 扫码贴单/换单（埋点） / 스캔·라벨(기록)</h3>
-      <div class="muted">实物扫码/打印/贴单在出单系统完成，本页面只记录开始/结束 + 人员加入/退出（0额外扫码）。</div>
+      <div class="muted">
+        实物扫码/打印/贴单在出单系统完成，本页面只记录开始/结束 + 加入/退出（0额外扫码）。
+      </div>
 
       <button class="primary" onclick="startRelabel()">开始换单 <small>시작</small></button>
 
-      <button class="primary" onclick="joinWork('B2C','RELABEL')">加入作业 <small>참여(입장)</small></button>
-      <button class="primary" onclick="leaveWork('B2C','RELABEL')">退出作业 <small>퇴장(종료)</small></button>
+      <button class="primary" onclick="joinWork('B2C','RELABEL')">加入作业（扫工牌） <small>참여(입장)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','RELABEL')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
 
       <button class="primary" onclick="endRelabel()">结束换单 <small>종료</small></button>
       <button onclick="hideB2CRelabel()">返回 B2C 菜单 <small>메뉴로</small></button>
@@ -304,19 +307,10 @@ function showView(view){
     document.getElementById("tab-"+v).classList.toggle("active", v===view);
   }
 }
-
-function showB2CPick(){
-  document.getElementById("b2c-pick-card").style.display = "block";
-}
-function hideB2CPick(){
-  document.getElementById("b2c-pick-card").style.display = "none";
-}
-function showB2CRelabel(){
-  document.getElementById("b2c-relabel-card").style.display = "block";
-}
-function hideB2CRelabel(){
-  document.getElementById("b2c-relabel-card").style.display = "none";
-}
+function showB2CPick(){ document.getElementById("b2c-pick-card").style.display = "block"; }
+function hideB2CPick(){ document.getElementById("b2c-pick-card").style.display = "none"; }
+function showB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "block"; }
+function hideB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "none"; }
 
 /** ===== Submit event ===== */
 async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id=""}){
@@ -329,15 +323,29 @@ async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id
   fd.append(ENTRY_DA, da_id);
   fd.append(ENTRY_BIZ, biz);
   fd.append(ENTRY_TASK, task);
-
   await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
 }
 
-/** ===== Badge validators ===== */
-function isDaBadge(code){ return /^DA-\d{8}-\d+$/.test(code); }
-// 允许 EMP-001 或 EMP-ABC_01 等
-function isEmpBadge(code){ return /^EMP-[A-Za-z0-9_-]+$/.test(code); }
-function isOperatorBadge(code){ return isDaBadge(code) || isEmpBadge(code); }
+/** ===== Badge parsing / validation =====
+    Badge can be:
+    - DA-20260224-01
+    - DA-20260224-01|홍길동
+    - EMP-001
+    - EMP-001|张三
+*/
+function parseBadge(code){
+  const raw = (code || "").trim();
+  const parts = raw.split("|");
+  const id = (parts[0] || "").trim();
+  const name = (parts[1] || "").trim();
+  return { raw, id, name };
+}
+function isDaId(id){ return /^DA-\d{8}-\d+$/.test(id); }
+function isEmpId(id){ return /^EMP-[A-Za-z0-9_-]+$/.test(id); }
+function isOperatorBadge(raw){
+  const p = parseBadge(raw);
+  return isDaId(p.id) || isEmpId(p.id);
+}
 
 /** ===== B2C PICK ===== */
 async function startPicking(){
@@ -375,7 +383,7 @@ async function endPicking(){
   }
 }
 
-/** ===== B2C RELABEL (no extra scan) ===== */
+/** ===== B2C RELABEL (0 extra scan) ===== */
 function setRelabelTimerText(text){
   const el = document.getElementById("relabelTimer");
   if(el) el.textContent = text;
@@ -491,14 +499,26 @@ function makeDaId(){
 
 async function dailyCheckin(){
   try{
-    currentDaId = makeDaId();
+    const da = makeDaId();
+    currentDaId = da;
     localStorage.setItem("da_id", currentDaId);
 
-    await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: currentDaId });
+    await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
 
     refreshDaUI();
-    alert("工牌已生成 ✅ " + currentDaId + "\n可批量生成后截图/打印");
+    alert("日当工牌已生成 ✅ " + da);
     setDaStatus("已记录 ✅", true);
+
+    // show single badge QR in list (optional)
+    const listEl = document.getElementById("badgeList");
+    const box = document.createElement("div");
+    box.style.border = "1px solid #ddd";
+    box.style.borderRadius = "12px";
+    box.style.padding = "10px";
+    box.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${da}</div><div id="qr_${da}"></div>`;
+    listEl.prepend(box);
+    new QRCode(document.getElementById(`qr_${da}`), { text: da, width: 160, height: 160 });
+
   }catch(e){
     setDaStatus("失败 ❌ " + e, false);
   }
@@ -532,14 +552,14 @@ async function bulkDailyCheckin(){
 
     refreshDaUI();
     setDaStatus(`批量生成完成 ✅ 共 ${n} 个（可截图/打印）`, true);
-    alert("批量工牌已生成 ✅ 你可以直接截图/打印这个页面。");
+    alert("批量日当工牌已生成 ✅ 可截图/打印。");
   }catch(e){
     setDaStatus("批量生成失败 ❌ " + e, false);
   }
 }
 
-/** bind badge to current session (event=bind_daily) */
-async function bindDailyToSession(){
+/** Bind badge to current session (event=bind_daily) */
+async function bindBadgeToSession(){
   try{
     if(!currentSessionId){
       setDaStatus("请先开始某个作业再绑定 / 먼저 시작", false);
@@ -553,7 +573,51 @@ async function bindDailyToSession(){
   }
 }
 
-/** ===== Scanner controls ===== */
+/** ===== Employee badge generator ===== */
+function padNum(n, width){
+  const s = String(n);
+  if(s.length >= width) return s;
+  return "0".repeat(width - s.length) + s;
+}
+
+function normalizeNames(text){
+  return (text || "")
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function generateEmployeeBadges(){
+  const names = normalizeNames(document.getElementById("empNames").value);
+  if(names.length === 0){
+    alert("请先输入员工名字（每行一个）");
+    return;
+  }
+  const start = parseInt(document.getElementById("empStart").value || "1", 10);
+  const pad = parseInt(document.getElementById("empPad").value || "3", 10);
+
+  const listEl = document.getElementById("empBadgeList");
+  listEl.innerHTML = "";
+
+  names.forEach((name, idx) => {
+    const num = start + idx;
+    const empId = "EMP-" + padNum(num, pad);
+    const payload = `${empId}|${name}`;
+
+    const box = document.createElement("div");
+    box.style.border = "1px solid #ddd";
+    box.style.borderRadius = "12px";
+    box.style.padding = "10px";
+    box.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${payload}</div><div id="empqr_${empId}_${idx}"></div>`;
+    listEl.appendChild(box);
+
+    new QRCode(document.getElementById(`empqr_${empId}_${idx}`), { text: payload, width: 160, height: 160 });
+  });
+
+  alert(`已生成员工工牌 ✅ 共 ${names.length} 个\n建议截图/打印此页面发放。`);
+}
+
+/** ===== Scanner: wave / badgeBind / labor ===== */
 async function openScannerWave(){
   if(!currentSessionId){
     setStatus("请先开始拣货 / 먼저 시작", false);
@@ -579,7 +643,7 @@ async function openScannerCommon(){
     if (now - lastScanAt < 1000) return;
     lastScanAt = now;
 
-    // ----- MODE: wave (B2C PICK) -----
+    // MODE: wave (B2C PICK)
     if(scanMode === "wave"){
       const ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){
@@ -598,37 +662,42 @@ async function openScannerCommon(){
       return;
     }
 
-    // ----- MODE: bind badge to session -----
+    // MODE: bind badge to session
     if(scanMode === "badgeBind"){
       if(!isOperatorBadge(code)){
-        setDaStatus("无效工牌（DA-... 或 EMP-...）", false);
+        setDaStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
         return;
       }
-      await submitEvent({ event:"bind_daily", biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: code });
-      currentDaId = code;
+      const p = parseBadge(code);
+      await submitEvent({ event:"bind_daily", biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
+
+      currentDaId = p.raw;
       localStorage.setItem("da_id", currentDaId);
       refreshDaUI();
-      alert("已绑定工牌 ✅ " + code);
+
+      alert("已绑定工牌 ✅ " + p.raw);
       setDaStatus("绑定成功 ✅", true);
       await closeScanner();
       return;
     }
 
-    // ----- MODE: labor join/leave -----
+    // MODE: labor join/leave
     if(scanMode === "labor"){
       if(!isOperatorBadge(code)){
-        setStatus("无效工牌（DA-... 或 EMP-...）", false);
+        setStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
         return;
       }
+      const p = parseBadge(code);
       await submitEvent({
-        event: laborAction,        // join / leave
-        biz: laborBiz,             // B2C
-        task: laborTask,           // PICK / RELABEL
+        event: laborAction,
+        biz: laborBiz,
+        task: laborTask,
         pick_session_id: currentSessionId,
-        da_id: code
+        da_id: p.raw
       });
-      alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + code);
-      setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + code, true);
+
+      alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p.raw);
+      setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p.raw, true);
       await closeScanner();
       return;
     }
@@ -653,6 +722,22 @@ async function closeScanner(){
     }
   }catch(e){}
   document.getElementById("scannerCard").style.display = "none";
+}
+
+/** ===== RELABEL timer helpers ===== */
+function setRelabelTimerText(text){
+  const el = document.getElementById("relabelTimer");
+  if(el) el.textContent = text;
+}
+function startRelabelTimer(){
+  if(relabelTimerHandle) clearInterval(relabelTimerHandle);
+  relabelTimerHandle = setInterval(()=>{
+    if(!relabelStartTs) return;
+    const sec = Math.floor((Date.now() - relabelStartTs)/1000);
+    const mm = String(Math.floor(sec/60)).padStart(2,'0');
+    const ss = String(sec%60).padStart(2,'0');
+    setRelabelTimerText(`进行中 / 진행중: ${mm}:${ss}`);
+  }, 1000);
 }
 </script>
 </body>
