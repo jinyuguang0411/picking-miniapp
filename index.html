@@ -133,8 +133,38 @@ async function openScanner(){
   document.getElementById("reader").innerHTML = "";
 
   scanner = new Html5Qrcode("reader");
+
+  // 先尝试直接用后置摄像头（environment）
+  try{
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      async (decodedText) => {
+        const code = decodedText.trim();
+        const ok = /^\d{4}-\d{4}-\d+$/.test(code);
+        if(!ok){
+          setStatus("波次格式不对（例：2026-0224-6）", false);
+          return;
+        }
+        await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
+        setStatus("已记录波次 ✅ " + code, true);
+      }
+    );
+    setStatus("已打开后置摄像头 ✅", true);
+    return;
+  }catch(e){
+    // 如果 facingMode 不支持/被拒绝，就走下面的摄像头列表
+  }
+
+  // fallback：从摄像头列表里挑一个更像后置的
   const cams = await Html5Qrcode.getCameras();
-  const camId = cams?.[0]?.id;
+  let camId = cams?.[0]?.id;
+
+  // 尝试用名字包含 back/rear/environment 的摄像头
+  if(cams && cams.length){
+    const prefer = cams.find(c => /back|rear|environment/i.test(c.label));
+    if(prefer) camId = prefer.id;
+  }
 
   await scanner.start(
     camId,
@@ -150,6 +180,7 @@ async function openScanner(){
       setStatus("已记录波次 ✅ " + code, true);
     }
   );
+  setStatus("已打开摄像头 ✅", true);
 }
 
 async function closeScanner(){
