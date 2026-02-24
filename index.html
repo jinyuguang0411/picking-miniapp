@@ -30,7 +30,15 @@
     <button onclick="openScanner()">扫码波次 / 웨이브 스캔</button>
     <button onclick="endPicking()">结束拣货 / 종료</button>
   </div>
-
+  <div class="card">
+  <h3>日当 / 일용직</h3>
+    <button onclick="dailyCheckin()">生成工牌（签到）/ 출근 등록</button>
+    <div><small>da_id</small></div>
+    <div id="daText">无</div>
+    <button onclick="bindDaily()">绑定工牌到当前趟次 / 명찰 연결</button>
+    <small id="daStatus"></small>
+  </div>
+  
   <div class="card" id="scannerCard" style="display:none;">
     <h3>扫码波次</h3>
     <div id="reader" style="width:100%"></div>
@@ -44,6 +52,7 @@ const ENTRY_DEVICE = "entry.1221756343";
 const ENTRY_SESSION = "entry.139498995";
 const ENTRY_WAVE = "entry.2002106420";
 const ENTRY_TS = "entry.179441545";
+const ENTRY_DA = "entry.1739228641";
 
 let scanner = null;
 let currentSessionId = localStorage.getItem("pick_session_id") || null;
@@ -102,13 +111,14 @@ function refreshUI(){
 }
 refreshUI();
 
-async function submitEvent({event, pick_session_id, wave_id=""}){
+async function submitEvent({event, pick_session_id, wave_id="", da_id=""}){
   const fd = new FormData();
   fd.append(ENTRY_EVENT, event);
   fd.append(ENTRY_DEVICE, makeDeviceId());
-  fd.append(ENTRY_SESSION, pick_session_id);
+  fd.append(ENTRY_SESSION, pick_session_id || "NA");
   fd.append(ENTRY_WAVE, wave_id);
   fd.append(ENTRY_TS, nowTs());
+  fd.append(ENTRY_DA, da_id);     // 新增：日当ID（可空）
   await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
 }
 
@@ -239,6 +249,110 @@ async function closeScanner(){
   }catch(e){}
   document.getElementById("scannerCard").style.display = "none";
 }
+
+let currentDaId = localStorage.getItem("da_id") || null;
+
+// 生成 DA-YYYYMMDD-序号（每台手机每天从01开始）
+function makeDaId(){
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  const key = `da_seq_${yyyy}${mm}${dd}`;
+  let seq = parseInt(localStorage.getItem(key) || "0", 10) + 1;
+  localStorage.setItem(key, String(seq));
+  return `DA-${yyyy}${mm}${dd}-${String(seq).padStart(2,'0')}`;
+}
+
+function setDaStatus(msg, ok=true){
+  const el = document.getElementById("daStatus");
+  el.className = ok ? "ok" : "bad";
+  el.textContent = msg;
+}
+
+function refreshDaUI(){
+  document.getElementById("daText").textContent = currentDaId || "无";
+}
+refreshDaUI();
+
+// 日当签到（生成工牌并写入表）
+async function dailyCheckin(){
+  try{
+    currentDaId = makeDaId();
+    localStorage.setItem("da_id", currentDaId);
+
+    // 写入表：daily_checkin（pick_session_id 用 NA）
+    await submitEvent({ event:"daily_checkin", pick_session_id:"NA", da_id: currentDaId });
+
+    refreshDaUI();
+    alert("工牌已生成 ✅ " + currentDaId + "\n请截图/打印这张页面并贴在日当身上");
+    setDaStatus("签到已记录 ✅", true);
+  }catch(e){
+    setDaStatus("签到失败 ❌ " + e, false);
+  }
+}
+
+// 绑定工牌：需要先开始拣货，再扫工牌二维码（DA-...）
+async function bindDaily(){
+  try{
+    if(!currentSessionId){
+      setDaStatus("请先开始拣货再绑定工牌", false);
+      return;
+    }
+    // 打开扫码，但此处扫的是 da_id（工牌）
+    await openScannerBadge();
+  }catch(e){
+    setDaStatus("绑定失败 ❌ " + e, false);
+  }
+}
+
+// 单独的“扫工牌”扫码器（不和波次混）
+async function openScannerBadge(){
+  document.getElementById("scannerCard").style.display = "block";
+  document.getElementById("reader").innerHTML = "";
+
+  // 关闭旧scanner
+  try{ if(scanner){ await scanner.stop(); await scanner.clear(); } }catch(e){}
+  scanner = new Html5Qrcode("reader");
+
+  // 优先后置
+  const onScan = async (decodedText) => {
+    const code = decodedText.trim();
+    // 基本校验：DA-YYYYMMDD-xx
+    const ok = /^DA-\d{8}-\d+$/.test(code);
+    if(!ok){
+      setDaStatus("这不是有效工牌（DA-YYYYMMDD-xx）", false);
+      return;
+    }
+
+    // 写入表：bind_daily
+    await submitEvent({ event:"bind_daily", pick_session_id: currentSessionId, da_id: code });
+
+    currentDaId = code;
+    localStorage.setItem("da_id", currentDaId);
+    refreshDaUI();
+
+    alert("已绑定工牌 ✅ " + code);
+    setDaStatus("已绑定到本趟 ✅", true);
+
+    // 绑定成功后关闭扫码
+    await closeScanner();
+  };
+
+  try{
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      onScan
+    );
+  }catch(e){
+    // fallback
+    const cams = await Html5Qrcode.getCameras();
+    const camId = cams?.[0]?.id;
+    await scanner.start(camId, { fps:10, qrbox:{width:240,height:240}}, onScan);
+  }
+}
+
 </script>
 </body>
 </html>
