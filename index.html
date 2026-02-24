@@ -47,6 +47,8 @@ const ENTRY_TS = "entry.179441545";
 
 let scanner = null;
 let currentSessionId = localStorage.getItem("pick_session_id") || null;
+let scannedWaves = new Set();     // 本趟已扫波次
+let lastScanAt = 0;              // 防抖：避免一秒内重复触发
 
 function nowTs(){ return String(Date.now()); }
 
@@ -100,6 +102,7 @@ async function startPicking(){
     }
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
+    scannedWaves = new Set();
     await submitEvent({ event:"start", pick_session_id: currentSessionId });
     refreshUI();
     setStatus("开始已记录 ✅", true);
@@ -140,15 +143,39 @@ async function openScanner(){
       { facingMode: "environment" },
       { fps: 10, qrbox: { width: 240, height: 240 } },
       async (decodedText) => {
-        const code = decodedText.trim();
-        const ok = /^\d{4}-\d{4}-\d+$/.test(code);
-        if(!ok){
-          setStatus("波次格式不对（例：2026-0224-6）", false);
-          return;
-        }
-        await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
-        setStatus("已记录波次 ✅ " + code, true);
-      }
+  const code = decodedText.trim();
+
+  // 防抖：1秒内只处理一次
+  const now = Date.now();
+  if (now - lastScanAt < 1000) return;
+  lastScanAt = now;
+
+  // 波次格式校验
+  const ok = /^\d{4}-\d{4}-\d+$/.test(code);
+  if(!ok){
+    setStatus("波次格式不对（例：2026-0224-6）", false);
+    return;
+  }
+
+  // 去重：同一趟同一波次只记一次
+  if (scannedWaves.has(code)) {
+    // 震动反馈（手机支持的话）
+    if (navigator.vibrate) navigator.vibrate(80);
+    setStatus("重复波次已忽略 ⏭️ " + code, false);
+    return;
+  }
+
+  // 先把它加入集合，避免并发重复
+  scannedWaves.add(code);
+
+  // 提交事件
+  await submitEvent({ event:"wave", pick_session_id: currentSessionId, wave_id: code });
+
+  // 强反馈：震动 + 弹窗 + 状态
+  if (navigator.vibrate) navigator.vibrate([60, 30, 60]);
+  alert("已记录波次 ✅ " + code);
+  setStatus("已记录波次 ✅ " + code, true);
+}
     );
     setStatus("已打开后置摄像头 ✅", true);
     return;
