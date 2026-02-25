@@ -40,6 +40,8 @@
     .gridHome{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
     .gridHome button{height:92px;text-align:left;line-height:1.15}
     .gridHome small{color:rgba(255,255,255,.85)}
+    .listBox{border:1px dashed #ddd;border-radius:12px;padding:10px;margin-top:8px}
+    .tag{display:inline-block;border:1px solid #ddd;border-radius:999px;padding:4px 8px;margin:4px 6px 0 0;font-size:12px}
   </style>
 </head>
 
@@ -116,10 +118,7 @@
 
     <div class="card">
       <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
-      <div class="muted">
-        把员工名字一行一个粘贴进来，点击生成。二维码内容将是 EMP-001|张三 这种格式。
-        <br>한국인 이름도 그대로 넣으면 됩니다.
-      </div>
+      <div class="muted">把员工名字一行一个粘贴进来，点击生成。二维码内容：EMP-001|张三（支持韩文姓名）。</div>
 
       <small>员工姓名列表（每行一个） / 이름 목록</small>
       <textarea id="empNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
@@ -162,9 +161,13 @@
       <button class="primary" onclick="joinWork('B2C','PICK')">加入作业（扫工牌） <small>참여(입장)</small></button>
       <button class="primary" onclick="leaveWork('B2C','PICK')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
 
+      <div class="listBox">
+        <div><b>当前参与名单 / 참여자</b>：<span id="pickCount">0</span></div>
+        <div id="pickActiveList" class="muted">无 / 없음</div>
+      </div>
+
       <button class="primary" onclick="openScannerWave()">扫码波次 <small>웨이브 스캔</small></button>
 
-      <!-- 组长模式：先登录才能显示结束按钮 -->
       <button class="primary" onclick="leaderLoginPick()">组长登录（扫码） <small>팀장 로그인</small></button>
       <div class="pill" id="leaderInfoPick" style="margin-top:6px;">组长未登录 / 팀장 미로그인</div>
 
@@ -173,22 +176,26 @@
       <button onclick="hideB2CPick()">返回 B2C 菜单 <small>메뉴로</small></button>
 
       <div class="pill" style="margin-top:10px;">
-        ✅ 规则：组长只点【开始/扫波次/结束】；拣货员只点【加入/退出】。
-        <br>✅ A拣完小货位：点【退出作业】即可，不要结束拣货。
+        ✅ 规则：组长只点【开始/扫波次/结束】；拣货员只点【加入/退出】。<br>
+        ✅ A拣完小货位：点【退出作业】即可，不要结束拣货。<br>
+        ✅ 还有人没退出时，系统不允许组长结束。
       </div>
     </div>
 
-    <!-- B2C RELABEL (0 extra scan) -->
+    <!-- B2C RELABEL -->
     <div class="card" id="b2c-relabel-card" style="display:none;">
       <h3>B2C - 扫码贴单/换单（埋点） / 스캔·라벨(기록)</h3>
-      <div class="muted">
-        实物扫码/打印/贴单在出单系统完成，本页面只记录开始/结束 + 加入/退出（0额外扫码）。
-      </div>
+      <div class="muted">实物扫码/打印/贴单在出单系统完成，本页面只记录开始/结束 + 加入/退出（0额外扫码）。</div>
 
       <button class="primary" onclick="startRelabel()">开始换单 <small>시작</small></button>
 
       <button class="primary" onclick="joinWork('B2C','RELABEL')">加入作业（扫工牌） <small>참여(입장)</small></button>
       <button class="primary" onclick="leaveWork('B2C','RELABEL')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
+
+      <div class="listBox">
+        <div><b>当前参与名单 / 참여자</b>：<span id="relabelCount">0</span></div>
+        <div id="relabelActiveList" class="muted">无 / 없음</div>
+      </div>
 
       <button class="primary" onclick="endRelabel()">结束换单 <small>종료</small></button>
       <button onclick="hideB2CRelabel()">返回 B2C 菜单 <small>메뉴로</small></button>
@@ -227,7 +234,6 @@
 <script>
 /** ===== Google Form mapping ===== */
 const FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
-
 const ENTRY_EVENT   = "entry.806252256";
 const ENTRY_DEVICE  = "entry.1221756343";
 const ENTRY_SESSION = "entry.139498995";
@@ -239,7 +245,7 @@ const ENTRY_TASK    = "entry.53174481";
 
 /** ===== Global state ===== */
 let scanner = null;
-let scanMode = null; // 'wave' | 'badgeBind' | 'labor' | 'leaderLoginPick' | 'leaderEndPick'
+let scanMode = null; // wave | badgeBind | labor | leaderLoginPick | leaderEndPick
 let currentSessionId = localStorage.getItem("pick_session_id") || null;
 
 let scannedWaves = new Set();
@@ -248,18 +254,22 @@ let lastScanAt = 0;
 let currentDaId = localStorage.getItem("da_id") || null;
 
 /** labor */
-let laborAction = null; // join / leave
+let laborAction = null;
 let laborBiz = null;
 let laborTask = null;
+
+/** participants (active in current session) */
+let activePick = new Set();     // Set of badge raw
+let activeRelabel = new Set();
 
 /** RELABEL timer */
 let relabelTimerHandle = null;
 let relabelStartTs = null;
 
 /** Leader gating (PICK) */
-let leaderPickBadge = localStorage.getItem("leader_pick_badge") || null; // EMP-xxx|名字
-let leaderPickOk = false; // per-session
-let pendingLeaderEnd = null; // {biz, task}
+let leaderPickBadge = localStorage.getItem("leader_pick_badge") || null;
+let leaderPickOk = false;
+let pendingLeaderEnd = null;
 
 /** ===== Utilities ===== */
 function nowTs(){ return String(Date.now()); }
@@ -319,9 +329,9 @@ function showView(view){
     document.getElementById("tab-"+v).classList.toggle("active", v===view);
   }
 }
-function showB2CPick(){ document.getElementById("b2c-pick-card").style.display = "block"; syncLeaderPickUI(); }
+function showB2CPick(){ document.getElementById("b2c-pick-card").style.display = "block"; syncLeaderPickUI(); renderActiveLists(); }
 function hideB2CPick(){ document.getElementById("b2c-pick-card").style.display = "none"; }
-function showB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "block"; }
+function showB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "block"; renderActiveLists(); }
 function hideB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "none"; }
 
 /** ===== Submit event ===== */
@@ -338,13 +348,7 @@ async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id
   await fetch(FORM_URL, { method:"POST", mode:"no-cors", body: fd });
 }
 
-/** ===== Badge parsing / validation =====
-    Badge can be:
-    - DA-20260224-01
-    - DA-20260224-01|홍길동
-    - EMP-001
-    - EMP-001|张三
-*/
+/** ===== Badge helpers ===== */
 function parseBadge(code){
   const raw = (code || "").trim();
   const parts = raw.split("|");
@@ -359,7 +363,30 @@ function isOperatorBadge(raw){
   return isDaId(p.id) || isEmpId(p.id);
 }
 
-/** ===== Leader gating helpers (PICK) ===== */
+/** ===== Active list rendering ===== */
+function badgeDisplay(raw){
+  // 优先显示名字；没有名字就显示ID
+  const p = parseBadge(raw);
+  return p.name ? `${p.id}｜${p.name}` : p.id;
+}
+function renderSetToHtml(setObj){
+  const arr = Array.from(setObj);
+  if(arr.length === 0) return `<span class="muted">无 / 없음</span>`;
+  return arr.map(x => `<span class="tag">${badgeDisplay(x)}</span>`).join("");
+}
+function renderActiveLists(){
+  const pc = document.getElementById("pickCount");
+  const pl = document.getElementById("pickActiveList");
+  if(pc) pc.textContent = String(activePick.size);
+  if(pl) pl.innerHTML = renderSetToHtml(activePick);
+
+  const rc = document.getElementById("relabelCount");
+  const rl = document.getElementById("relabelActiveList");
+  if(rc) rc.textContent = String(activeRelabel.size);
+  if(rl) rl.innerHTML = renderSetToHtml(activeRelabel);
+}
+
+/** ===== Leader gating UI ===== */
 function syncLeaderPickUI(){
   const info = document.getElementById("leaderInfoPick");
   const btnEnd = document.getElementById("btnEndPick");
@@ -369,11 +396,12 @@ function syncLeaderPickUI(){
     info.textContent = `组长已登录 ✅ ${leaderPickBadge}`;
     btnEnd.style.display = "block";
   }else{
-    info.textContent = leaderPickBadge ? `组长未确认（本趟需登录） / 팀장 미확인: ${leaderPickBadge}` : "组长未登录 / 팀장 미로그인";
+    info.textContent = leaderPickBadge ? `组长未确认（本趟需登录）: ${leaderPickBadge}` : "组长未登录 / 팀장 미로그인";
     btnEnd.style.display = "none";
   }
 }
 
+/** ===== Leader actions ===== */
 async function leaderLoginPick(){
   if(!currentSessionId){
     setStatus("请先开始拣货再组长登录 / 먼저 시작", false);
@@ -384,15 +412,7 @@ async function leaderLoginPick(){
   await openScannerCommon();
 }
 
-async function requestLeaderEndPick(){
-  // 点击结束时，必须再扫一次组长工牌确认
-  pendingLeaderEnd = { biz:"B2C", task:"PICK" };
-  scanMode = "leaderEndPick";
-  document.getElementById("scanTitle").innerHTML = "扫码组长工牌确认结束 <small>팀장 명찰로 종료 확인</small>";
-  await openScannerCommon();
-}
-
-/** ===== Multi-person labor: join/leave ===== */
+/** ===== Multi-person labor ===== */
 async function joinWork(biz, task){
   if(!currentSessionId){
     setStatus("请先开始该作业再加入 / 먼저 시작", false);
@@ -430,9 +450,13 @@ async function startPicking(){
     localStorage.setItem("pick_session_id", currentSessionId);
     scannedWaves = new Set();
 
-    // 每趟需要组长重新确认
+    // reset leader per session
     leaderPickOk = false;
     syncLeaderPickUI();
+
+    // reset participants
+    activePick = new Set();
+    renderActiveLists();
 
     await submitEvent({ event:"start", biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
     refreshUI();
@@ -440,6 +464,16 @@ async function startPicking(){
   }catch(e){
     setStatus("拣货开始失败 ❌ " + e, false);
   }
+}
+
+async function openScannerWave(){
+  if(!currentSessionId){
+    setStatus("请先开始拣货 / 먼저 시작", false);
+    return;
+  }
+  scanMode = "wave";
+  document.getElementById("scanTitle").innerHTML = "扫码波次 <small>웨이브 스캔</small>";
+  await openScannerCommon();
 }
 
 async function endPicking(){
@@ -452,21 +486,19 @@ async function endPicking(){
       setStatus("需要组长先登录（扫码）/ 팀장 로그인 필요", false);
       return;
     }
-    await requestLeaderEndPick();
+    if(activePick.size > 0){
+      setStatus("还有人员未退出，禁止结束（请让他们 leave）", false);
+      alert("还有人员未退出作业，不能结束拣货。\n请让所有参与者点【退出作业】并扫码工牌。");
+      return;
+    }
+
+    pendingLeaderEnd = { biz:"B2C", task:"PICK" };
+    scanMode = "leaderEndPick";
+    document.getElementById("scanTitle").innerHTML = "扫码组长工牌确认结束 <small>팀장 명찰로 종료 확인</small>";
+    await openScannerCommon();
   }catch(e){
     setStatus("结束确认失败 ❌ " + e, false);
   }
-}
-
-/** ===== wave scan for PICK ===== */
-async function openScannerWave(){
-  if(!currentSessionId){
-    setStatus("请先开始拣货 / 먼저 시작", false);
-    return;
-  }
-  scanMode = "wave";
-  document.getElementById("scanTitle").innerHTML = "扫码波次 <small>웨이브 스캔</small>";
-  await openScannerCommon();
 }
 
 /** ===== B2C RELABEL (0 extra scan) ===== */
@@ -494,6 +526,10 @@ async function startRelabel(){
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
 
+    // reset participants
+    activeRelabel = new Set();
+    renderActiveLists();
+
     relabelStartTs = Date.now();
     setRelabelTimerText("进行中 / 진행중: 00:00");
     startRelabelTimer();
@@ -512,6 +548,12 @@ async function endRelabel(){
       setStatus("没有未结束趟次 / 열린 세션 없음", false);
       return;
     }
+    if(activeRelabel.size > 0){
+      setStatus("还有人员未退出，建议先 leave（否则人时会不准）", false);
+      alert("还有人员未退出作业。\n建议先让所有参与者点【退出作业】扫码，再结束。");
+      return;
+    }
+
     await submitEvent({ event:"end", biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
 
     if(relabelTimerHandle) clearInterval(relabelTimerHandle);
@@ -575,7 +617,6 @@ async function dailyCheckin(){
     box.innerHTML = `<div style="font-weight:700;margin-bottom:6px;">${da}</div><div id="qr_${da}"></div>`;
     listEl.prepend(box);
     new QRCode(document.getElementById(`qr_${da}`), { text: da, width: 160, height: 160 });
-
   }catch(e){
     setDaStatus("失败 ❌ " + e, false);
   }
@@ -615,7 +656,6 @@ async function bulkDailyCheckin(){
   }
 }
 
-/** Bind badge to current session (event=bind_daily) */
 async function bindBadgeToSession(){
   try{
     if(!currentSessionId){
@@ -683,12 +723,10 @@ async function openScannerCommon(){
   const onScan = async (decodedText) => {
     const code = decodedText.trim();
 
-    // debounce 1s
     const now = Date.now();
     if (now - lastScanAt < 1000) return;
     lastScanAt = now;
 
-    // MODE: wave scan (PICK)
     if(scanMode === "wave"){
       const ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){
@@ -707,7 +745,6 @@ async function openScannerCommon(){
       return;
     }
 
-    // MODE: badge bind to session
     if(scanMode === "badgeBind"){
       if(!isOperatorBadge(code)){
         setDaStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
@@ -726,13 +763,13 @@ async function openScannerCommon(){
       return;
     }
 
-    // MODE: labor join/leave
     if(scanMode === "labor"){
       if(!isOperatorBadge(code)){
         setStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
         return;
       }
       const p = parseBadge(code);
+
       await submitEvent({
         event: laborAction,
         biz: laborBiz,
@@ -741,13 +778,23 @@ async function openScannerCommon(){
         da_id: p.raw
       });
 
+      // update active list
+      if(laborTask === "PICK"){
+        if(laborAction === "join") activePick.add(p.raw);
+        if(laborAction === "leave") activePick.delete(p.raw);
+      }
+      if(laborTask === "RELABEL"){
+        if(laborAction === "join") activeRelabel.add(p.raw);
+        if(laborAction === "leave") activeRelabel.delete(p.raw);
+      }
+      renderActiveLists();
+
       alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p.raw);
       setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p.raw, true);
       await closeScanner();
       return;
     }
 
-    // MODE: leader login (PICK)
     if(scanMode === "leaderLoginPick"){
       if(!isOperatorBadge(code)){
         setStatus("无效工牌（请扫 EMP-xxx|名字）", false);
@@ -768,7 +815,6 @@ async function openScannerCommon(){
       return;
     }
 
-    // MODE: leader end confirm (PICK)
     if(scanMode === "leaderEndPick"){
       if(!isOperatorBadge(code)){
         setStatus("无效工牌（请扫 EMP-xxx|名字）", false);
@@ -779,11 +825,18 @@ async function openScannerCommon(){
         setStatus("请扫组长员工工牌（EMP-xxx|名字）", false);
         return;
       }
-      // 绑定到 leaderPickBadge（可选）
+
+      // final safety check (still)
+      if(activePick.size > 0){
+        setStatus("还有人员未退出，禁止结束", false);
+        alert("还有人员未退出作业，不能结束拣货。");
+        await closeScanner();
+        return;
+      }
+
       leaderPickBadge = p.raw;
       localStorage.setItem("leader_pick_badge", leaderPickBadge);
 
-      // 真正提交 end
       const biz = pendingLeaderEnd?.biz || "B2C";
       const task = pendingLeaderEnd?.task || "PICK";
       await submitEvent({ event:"end", biz: biz, task: task, pick_session_id: currentSessionId });
@@ -791,11 +844,10 @@ async function openScannerCommon(){
       alert("已由组长确认结束 ✅ " + p.raw);
       setStatus("结束已记录 ✅（组长确认）", true);
 
-      // 清理 session
       currentSessionId = null;
       localStorage.removeItem("pick_session_id");
       pendingLeaderEnd = null;
-      leaderPickOk = false; // 下一趟需要重新登录
+      leaderPickOk = false;
       refreshUI();
       syncLeaderPickUI();
 
@@ -804,7 +856,6 @@ async function openScannerCommon(){
     }
   };
 
-  // prefer back camera
   try{
     await scanner.start(
       { facingMode: "environment" },
@@ -827,27 +878,6 @@ async function closeScanner(){
     }
   }catch(e){}
   document.getElementById("scannerCard").style.display = "none";
-}
-
-/** When end button pressed */
-async function endPicking(){
-  // wrapper because we referenced endPicking in HTML id=btnEndPick
-  try{
-    if(!currentSessionId){
-      setStatus("没有未结束趟次 / 열린 세션 없음", false);
-      return;
-    }
-    if(!leaderPickOk){
-      setStatus("需要组长先登录（扫码）/ 팀장 로그인 필요", false);
-      return;
-    }
-    pendingLeaderEnd = { biz:"B2C", task:"PICK" };
-    scanMode = "leaderEndPick";
-    document.getElementById("scanTitle").innerHTML = "扫码组长工牌确认结束 <small>팀장 명찰로 종료 확인</small>";
-    await openScannerCommon();
-  }catch(e){
-    setStatus("结束确认失败 ❌ " + e, false);
-  }
 }
 </script>
 </body>
