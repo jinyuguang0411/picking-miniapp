@@ -1,1 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>仓库作业 / 창고 작업</title>
 
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+  <div class="header">
+    <div>
+      <div class="title">仓库作业 / 창고 작업</div>
+      <div class="subtitle">CK 仓库 · Incheon</div>
+    </div>
+    <div class="pill" id="netPill">Online</div>
+  </div>
+
+  <!-- 全局状态 -->
+  <div class="card">
+    <small>device_id（每台手机固定） / 기기ID</small>
+    <div id="device"></div>
+    <small>当前 pick_session_id（本趟作业ID） / 현재 작업ID</small>
+    <div id="session"></div>
+    <div id="status" class="pill" style="margin-top:8px;">Ready</div>
+  </div>
+
+  <!-- HOME -->
+  <div id="page-home" class="page">
+    <div class="card">
+      <h3>入口 / 메뉴</h3>
+      <div class="gridHome">
+        <button class="primary" onclick="go('badge')">
+          工牌 <small>명찰</small><br><small>日当/员工 批量生成</small>
+        </button>
+        <button class="primary" onclick="go('b2c_menu')">
+          B2C<br><small>拣货 / 换单贴单</small>
+        </button>
+        <button class="primary" onclick="comingSoon('进口快件（待上线）')">
+          进口快件 <small>수입 택배</small><br><small>卸货/过机/装柜</small>
+        </button>
+        <button class="primary" onclick="comingSoon('B2B（待上线）')">
+          B2B<br><small>卸货/工单/装车</small>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BADGE -->
+  <div id="page-badge" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">工牌 / 명찰</div>
+    </div>
+
+    <div class="card">
+      <h3>日当工牌 / 일용직 명찰</h3>
+
+      <small>今天日当人数 N / 오늘 인원</small>
+      <input id="daCount" type="number" min="1" max="200" placeholder="例如 10" />
+      <button class="primary" onclick="bulkDailyCheckin()">批量生成日当工牌 <small>일괄 생성</small></button>
+
+      <button onclick="dailyCheckin()">生成单个日当工牌 <small>1명 생성</small></button>
+
+      <div><small>最近生成工牌 / 최근 명찰</small></div>
+      <div id="daText">无</div>
+
+      <button onclick="bindBadgeToSession()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
+      <small id="daStatus" class="muted"></small>
+
+      <div id="badgeList" style="margin-top:10px;" class="grid2"></div>
+    </div>
+
+    <div class="card">
+      <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
+      <div class="muted">名字一行一个粘贴 → 生成二维码：EMP-001|张三（支持韩文姓名）。</div>
+
+      <small>员工姓名列表（每行一个） / 이름 목록</small>
+      <textarea id="empNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
+
+      <div class="row">
+        <div>
+          <small>起始编号 / 시작 번호</small>
+          <input id="empStart" type="number" min="1" max="999" value="1" />
+        </div>
+        <div>
+          <small>位数（001/01） / 자릿수</small>
+          <input id="empPad" type="number" min="2" max="4" value="3" />
+        </div>
+      </div>
+
+      <button class="primary" onclick="generateEmployeeBadges()">批量生成员工工牌 <small>직원 명찰 생성</small></button>
+      <div id="empBadgeList" style="margin-top:10px;" class="grid2"></div>
+    </div>
+  </div>
+
+  <!-- B2C MENU -->
+  <div id="page-b2c_menu" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 菜单 / 메뉴</div>
+    </div>
+
+    <div class="card">
+      <button class="primary" onclick="go('b2c_pick')">拣货（已上线） <small>피킹(사용중)</small></button>
+      <button class="primary" onclick="go('b2c_relabel')">扫码贴单/换单（埋点） <small>스캔·라벨(기록)</small></button>
+      <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
+    </div>
+  </div>
+
+  <!-- B2C PICK -->
+  <div id="page-b2c_pick" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 拣货 / 피킹</div>
+    </div>
+
+    <div class="card">
+      <button class="primary" onclick="startPicking()">开始拣货 <small>시작</small></button>
+
+      <button class="primary" onclick="joinWork('B2C','PICK')">加入作业（扫工牌） <small>참여(입장)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','PICK')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
+
+      <div class="listBox">
+        <div><b>当前参与名单 / 참여자</b>：<span id="pickCount">0</span></div>
+        <div id="pickActiveList" class="muted">无 / 없음</div>
+      </div>
+
+      <button class="primary" onclick="openScannerWave()">扫码波次 <small>웨이브 스캔</small></button>
+
+      <button class="primary" onclick="leaderLoginPick()">组长登录（扫码） <small>팀장 로그인</small></button>
+      <div class="pill" id="leaderInfoPick" style="margin-top:6px;">组长未登录 / 팀장 미로그인</div>
+
+      <button class="primary" id="btnEndPick" style="display:none;" onclick="endPicking()">结束拣货（组长确认） <small>종료(팀장 확인)</small></button>
+
+      <div class="pill" style="margin-top:10px;">
+        ✅ 刷新后会自动恢复本趟（波次/名单）<br>
+        ✅ 还有人没退出时，禁止结束
+      </div>
+    </div>
+  </div>
+
+  <!-- B2C RELABEL -->
+  <div id="page-b2c_relabel" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 换单贴单 / 라벨</div>
+    </div>
+
+    <div class="card">
+      <div class="muted">本页面只记录开始/结束 + 加入/退出（0额外扫码）。</div>
+
+      <button class="primary" onclick="startRelabel()">开始换单 <small>시작</small></button>
+
+      <button class="primary" onclick="joinWork('B2C','RELABEL')">加入作业（扫工牌） <small>참여(입장)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','RELABEL')">退出作业（扫工牌） <small>퇴장(종료)</small></button>
+
+      <div class="listBox">
+        <div><b>当前参与名单 / 참여자</b>：<span id="relabelCount">0</span></div>
+        <div id="relabelActiveList" class="muted">无 / 없음</div>
+      </div>
+
+      <button class="primary" onclick="endRelabel()">结束换单 <small>종료</small></button>
+      <div class="pill" id="relabelTimer" style="margin-top:10px;">未开始 / 미시작</div>
+    </div>
+  </div>
+
+  <!-- ===== Fullscreen Scanner Overlay ===== -->
+  <div id="scannerOverlay" class="overlay">
+    <div class="overlayCard">
+      <div class="overlayTop">
+        <div class="grow">
+          <div class="overlayTitle" id="scanTitle">扫码 / 스캔</div>
+          <div class="overlayHint">请对准二维码 / 바코드를 화면 중앙에 맞추세요</div>
+        </div>
+        <button class="small" style="width:auto;min-width:90px" onclick="closeScanner()">关闭 <small>닫기</small></button>
+      </div>
+      <div id="reader"></div>
+    </div>
+  </div>
+
+  <!-- 先 UI 再 App -->
+  <script src="./ui.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
