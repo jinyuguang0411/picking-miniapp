@@ -1,63 +1,66 @@
-body{font-family:system-ui;margin:16px}
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.title{font-size:22px;font-weight:800}
-.subtitle{font-size:12px;color:#666;margin-top:2px}
-.pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px;color:#333;display:inline-block}
+// ui.js - 只负责展示/渲染，不做业务逻辑
 
-.card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
-.row{display:flex;gap:10px}
-.row > *{flex:1}
+function $(id){ return document.getElementById(id); }
 
-button{
-  padding:14px 14px;margin:8px 0;width:100%;
-  font-size:16px;border-radius:14px;border:1px solid #ddd;background:#fff;cursor:pointer;
+function comingSoon(name){
+  alert(name + "\n还未上线 / 아직 준비중");
 }
-button.primary{border-color:#000;background:#000;color:#fff;font-weight:700;}
-button.ghost{background:#fff;border-style:dashed;}
-button.small{padding:10px 12px;font-size:14px}
 
-input, textarea{padding:10px;width:100%;font-size:16px;margin:6px 0;box-sizing:border-box}
-textarea{min-height:90px;resize:vertical}
+function setStatus(msg, ok){
+  if(ok === undefined) ok = true;
+  var el = $("status");
+  if(!el) return;
+  el.className = "pill " + (ok ? "ok" : "bad");
+  el.textContent = msg;
+}
 
-small{color:#666}
-.ok{color:#0a0}
-.bad{color:#b00}
-.muted{color:#666}
+function refreshUI(){
+  if($("device")) $("device").textContent = makeDeviceId();
+  if($("session")) $("session").textContent = currentSessionId || "无 / 없음";
+}
 
-.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.gridHome{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.gridHome button{height:92px;text-align:left;line-height:1.15}
-.gridHome small{color:rgba(255,255,255,.85)}
-.listBox{border:1px dashed #ddd;border-radius:12px;padding:10px;margin-top:8px}
-.tag{display:inline-block;border:1px solid #ddd;border-radius:999px;padding:4px 8px;margin:4px 6px 0 0;font-size:12px}
-.topbar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
-.topbar .back{width:auto;min-width:90px}
-.topbar .grow{flex:1}
+function refreshNet(){
+  var el = $("netPill");
+  if(!el) return;
+  el.textContent = navigator.onLine ? "Online" : "Offline";
+  el.style.borderColor = navigator.onLine ? "#0a0" : "#b00";
+}
 
-/* ===== Fullscreen Scanner Overlay ===== */
-.overlay{
-  position:fixed; inset:0;
-  background:rgba(0,0,0,0.65);
-  display:none;
-  z-index:9999;
-  padding:16px;
+function badgeDisplay(raw){
+  var p = parseBadge(raw);
+  return p.name ? (p.id + "｜" + p.name) : p.id;
 }
-.overlay.show{display:flex; align-items:center; justify-content:center;}
-.overlayCard{
-  width:min(520px, 100%);
-  background:#fff;
-  border-radius:18px;
-  border:1px solid #ddd;
-  padding:14px;
+
+function renderSetToHtml(setObj){
+  var arr = Array.from(setObj || []);
+  if(arr.length === 0) return '<span class="muted">无 / 없음</span>';
+  return arr.map(function(x){ return '<span class="tag">' + badgeDisplay(x) + '</span>'; }).join("");
 }
-.overlayTop{
-  display:flex; justify-content:space-between; align-items:center; gap:10px;
-  margin-bottom:10px;
+
+function renderActiveLists(){
+  if($("pickCount")) $("pickCount").textContent = String(activePick.size);
+  if($("pickActiveList")) $("pickActiveList").innerHTML = renderSetToHtml(activePick);
+
+  if($("relabelCount")) $("relabelCount").textContent = String(activeRelabel.size);
+  if($("relabelActiveList")) $("relabelActiveList").innerHTML = renderSetToHtml(activeRelabel);
 }
-.overlayTitle{font-size:18px;font-weight:800}
-.overlayHint{font-size:12px;color:#666;margin-top:2px}
-#reader{
-  width:100%;
-  border-radius:14px;
-  overflow:hidden;
+
+function syncLeaderPickUI(){
+  var info = $("leaderInfoPick");
+  var btnEnd = $("btnEndPick");
+  if(!info || !btnEnd) return;
+
+  if(leaderPickOk && leaderPickBadge){
+    info.textContent = "组长已登录 ✅ " + leaderPickBadge;
+    btnEnd.style.display = "block";
+  }else{
+    info.textContent = leaderPickBadge ? ("组长未确认（本趟需登录）: " + leaderPickBadge) : "组长未登录 / 팀장 미로그인";
+    btnEnd.style.display = "none";
+  }
 }
+
+function showOverlay(){ $("scannerOverlay").classList.add("show"); }
+function hideOverlay(){ $("scannerOverlay").classList.remove("show"); }
+
+window.addEventListener("online", refreshNet);
+window.addEventListener("offline", refreshNet);
