@@ -15,7 +15,7 @@ var ENTRY_TASK    = "entry.53174481";
 var GAS_LOCK_BASE = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdiSd6Ho4BqpRs1vKX41NYxa3gNYJV6FULx-4Wmsf0uNw/exec";
 
 /** ===== Router ===== */
-var pages = ["home","badge","b2c_menu","b2c_pick","b2c_relabel"];
+var pages = ["home","badge","b2c_menu","b2c_pick","b2c_relabel","b2c_pack"];
 function setHash(page){ location.hash = "#/" + page; }
 function getHashPage(){
   var h = (location.hash || "").trim();
