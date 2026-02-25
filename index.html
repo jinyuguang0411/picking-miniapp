@@ -15,11 +15,9 @@
     .subtitle{font-size:12px;color:#666;margin-top:2px}
     .pill{padding:6px 10px;border:1px solid #ddd;border-radius:999px;font-size:12px;color:#333;display:inline-block}
 
-    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-    .tab{padding:10px 12px;border:1px solid #ddd;border-radius:12px;background:#fff;cursor:pointer}
-    .tab.active{border-color:#000}
-
     .card{border:1px solid #ddd;border-radius:16px;padding:14px;margin:12px 0;background:#fff}
+    .row{display:flex;gap:10px}
+    .row > *{flex:1}
 
     button{
       padding:14px 14px;margin:8px 0;width:100%;
@@ -27,6 +25,7 @@
     }
     button.primary{border-color:#000;background:#000;color:#fff;font-weight:700;}
     button.ghost{background:#fff;border-style:dashed;}
+    button.small{padding:10px 12px;font-size:14px}
 
     input, textarea{padding:10px;width:100%;font-size:16px;margin:6px 0;box-sizing:border-box}
     textarea{min-height:90px;resize:vertical}
@@ -42,6 +41,37 @@
     .gridHome small{color:rgba(255,255,255,.85)}
     .listBox{border:1px dashed #ddd;border-radius:12px;padding:10px;margin-top:8px}
     .tag{display:inline-block;border:1px solid #ddd;border-radius:999px;padding:4px 8px;margin:4px 6px 0 0;font-size:12px}
+    .topbar{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+    .topbar .back{width:auto;min-width:90px}
+    .topbar .grow{flex:1}
+
+    /* ===== Fullscreen Scanner Overlay ===== */
+    .overlay{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,0.65);
+      display:none;
+      z-index:9999;
+      padding:16px;
+    }
+    .overlay.show{display:flex; align-items:center; justify-content:center;}
+    .overlayCard{
+      width:min(520px, 100%);
+      background:#fff;
+      border-radius:18px;
+      border:1px solid #ddd;
+      padding:14px;
+    }
+    .overlayTop{
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      margin-bottom:10px;
+    }
+    .overlayTitle{font-size:18px;font-weight:800}
+    .overlayHint{font-size:12px;color:#666;margin-top:2px}
+    #reader{
+      width:100%;
+      border-radius:14px;
+      overflow:hidden;
+    }
   </style>
 </head>
 
@@ -54,14 +84,7 @@
     <div class="pill" id="netPill">Online</div>
   </div>
 
-  <div class="tabs">
-    <div class="tab active" id="tab-home" onclick="showView('home')">主页 <small>홈</small></div>
-    <div class="tab" id="tab-badge" onclick="showView('badge')">工牌 <small>명찰</small></div>
-    <div class="tab" id="tab-b2c" onclick="showView('b2c')">B2C</div>
-    <div class="tab" id="tab-import" onclick="showView('import')">进口快件 <small>수입 택배</small></div>
-    <div class="tab" id="tab-b2b" onclick="showView('b2b')">B2B</div>
-  </div>
-
+  <!-- 全局状态 -->
   <div class="card">
     <small>device_id（每台手机固定） / 기기ID</small>
     <div id="device"></div>
@@ -71,20 +94,20 @@
   </div>
 
   <!-- HOME -->
-  <div id="view-home">
+  <div id="page-home" class="page">
     <div class="card">
       <h3>入口 / 메뉴</h3>
       <div class="gridHome">
-        <button class="primary" onclick="showView('badge')">
+        <button class="primary" onclick="go('badge')">
           工牌 <small>명찰</small><br><small>日当/员工 批量生成</small>
         </button>
-        <button class="primary" onclick="showView('b2c')">
+        <button class="primary" onclick="go('b2c_menu')">
           B2C<br><small>拣货 / 换单贴单</small>
         </button>
-        <button class="primary" onclick="showView('import')">
+        <button class="primary" onclick="go('import')">
           进口快件 <small>수입 택배</small><br><small>卸货/过机/装柜</small>
         </button>
-        <button class="primary" onclick="showView('b2b')">
+        <button class="primary" onclick="go('b2b')">
           B2B<br><small>卸货/工单/装车</small>
         </button>
       </div>
@@ -92,38 +115,38 @@
   </div>
 
   <!-- BADGE -->
-  <div id="view-badge" style="display:none;">
+  <div id="page-badge" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">工牌 / 명찰</div>
+    </div>
+
     <div class="card">
       <h3>日当工牌 / 일용직 명찰</h3>
 
-      <div style="margin-top:8px;">
-        <small>今天日当人数 N / 오늘 인원</small>
-        <input id="daCount" type="number" min="1" max="200" placeholder="例如 10" />
-        <button class="primary" onclick="bulkDailyCheckin()">批量生成日当工牌 <small>일괄 생성</small></button>
-      </div>
+      <small>今天日当人数 N / 오늘 인원</small>
+      <input id="daCount" type="number" min="1" max="200" placeholder="例如 10" />
+      <button class="primary" onclick="bulkDailyCheckin()">批量生成日当工牌 <small>일괄 생성</small></button>
 
-      <div style="margin-top:10px;">
-        <button onclick="dailyCheckin()">生成单个日当工牌 <small>1명 생성</small></button>
-        <div><small>最近生成工牌 / 최근 명찰</small></div>
-        <div id="daText">无</div>
-      </div>
+      <button onclick="dailyCheckin()">生成单个日当工牌 <small>1명 생성</small></button>
 
-      <div style="margin-top:10px;">
-        <button onclick="bindBadgeToSession()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
-        <small id="daStatus" class="muted"></small>
-      </div>
+      <div><small>最近生成工牌 / 최근 명찰</small></div>
+      <div id="daText">无</div>
+
+      <button onclick="bindBadgeToSession()">绑定工牌到当前趟次 <small>현재 작업에 연결</small></button>
+      <small id="daStatus" class="muted"></small>
 
       <div id="badgeList" style="margin-top:10px;" class="grid2"></div>
     </div>
 
     <div class="card">
       <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
-      <div class="muted">把员工名字一行一个粘贴进来，点击生成。二维码内容：EMP-001|张三（支持韩文姓名）。</div>
+      <div class="muted">名字一行一个粘贴 → 生成二维码：EMP-001|张三（支持韩文姓名）。</div>
 
       <small>员工姓名列表（每行一个） / 이름 목록</small>
       <textarea id="empNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
 
-      <div class="grid2">
+      <div class="row">
         <div>
           <small>起始编号 / 시작 번호</small>
           <input id="empStart" type="number" min="1" max="999" value="1" />
@@ -139,23 +162,32 @@
     </div>
   </div>
 
-  <!-- B2C -->
-  <div id="view-b2c" style="display:none;">
+  <!-- B2C MENU -->
+  <div id="page-b2c_menu" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 菜单 / 메뉴</div>
+    </div>
+
     <div class="card">
-      <h3>B2C</h3>
-      <button class="primary" onclick="showB2CPick()">拣货（已上线） <small>피킹(사용중)</small></button>
-      <button class="primary" onclick="showB2CRelabel()">扫码贴单/换单（埋点） <small>스캔·라벨(기록)</small></button>
+      <button class="primary" onclick="go('b2c_pick')">拣货（已上线） <small>피킹(사용중)</small></button>
+      <button class="primary" onclick="go('b2c_relabel')">扫码贴单/换单（埋点） <small>스캔·라벨(기록)</small></button>
 
       <button class="ghost" onclick="comingSoon('B2C 验货打包贴单 / 검수·포장·라벨')">验货打包贴单（待上线） <small>준비중</small></button>
       <button class="ghost" onclick="comingSoon('B2C 退件入库 / 반품 입고')">退件入库（待上线） <small>준비중</small></button>
       <button class="ghost" onclick="comingSoon('B2C 退件质检 / 반품 검품')">退件质检（待上线） <small>준비중</small></button>
       <button class="ghost" onclick="comingSoon('B2C 问题件处理 / 문제건 처리')">问题件处理（待上线） <small>준비중</small></button>
     </div>
+  </div>
 
-    <!-- B2C PICK -->
-    <div class="card" id="b2c-pick-card" style="display:none;">
-      <h3>B2C - 拣货 / 피킹</h3>
+  <!-- B2C PICK -->
+  <div id="page-b2c_pick" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 拣货 / 피킹</div>
+    </div>
 
+    <div class="card">
       <button class="primary" onclick="startPicking()">开始拣货 <small>시작</small></button>
 
       <button class="primary" onclick="joinWork('B2C','PICK')">加入作业（扫工牌） <small>참여(입장)</small></button>
@@ -173,18 +205,22 @@
 
       <button class="primary" id="btnEndPick" style="display:none;" onclick="endPicking()">结束拣货（组长确认） <small>종료(팀장 확인)</small></button>
 
-      <button onclick="hideB2CPick()">返回 B2C 菜单 <small>메뉴로</small></button>
-
       <div class="pill" style="margin-top:10px;">
         ✅ 规则：组长只点【开始/扫波次/结束】；拣货员只点【加入/退出】。<br>
         ✅ A拣完小货位：点【退出作业】即可，不要结束拣货。<br>
         ✅ 还有人没退出时，系统不允许组长结束。
       </div>
     </div>
+  </div>
 
-    <!-- B2C RELABEL -->
-    <div class="card" id="b2c-relabel-card" style="display:none;">
-      <h3>B2C - 扫码贴单/换单（埋点） / 스캔·라벨(기록)</h3>
+  <!-- B2C RELABEL -->
+  <div id="page-b2c_relabel" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 换单贴单 / 라벨</div>
+    </div>
+
+    <div class="card">
       <div class="muted">实物扫码/打印/贴单在出单系统完成，本页面只记录开始/结束 + 加入/退出（0额外扫码）。</div>
 
       <button class="primary" onclick="startRelabel()">开始换单 <small>시작</small></button>
@@ -198,16 +234,18 @@
       </div>
 
       <button class="primary" onclick="endRelabel()">结束换单 <small>종료</small></button>
-      <button onclick="hideB2CRelabel()">返回 B2C 菜单 <small>메뉴로</small></button>
-
       <div class="pill" id="relabelTimer" style="margin-top:10px;">未开始 / 미시작</div>
     </div>
   </div>
 
   <!-- IMPORT -->
-  <div id="view-import" style="display:none;">
+  <div id="page-import" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">进口快件 / 수입 택배</div>
+    </div>
+
     <div class="card">
-      <h3>进口快件 / 수입 택배</h3>
       <button class="ghost" onclick="comingSoon('进口快件 卸货 / 하역')">卸货（待上线） <small>준비중</small></button>
       <button class="ghost" onclick="comingSoon('进口快件 过机扫描 / 컨베이어 스캔')">过机扫描（待上线） <small>준비중</small></button>
       <button class="ghost" onclick="comingSoon('进口快件 装柜出库 / 상차·출고')">装柜出库（待上线） <small>준비중</small></button>
@@ -215,20 +253,31 @@
   </div>
 
   <!-- B2B -->
-  <div id="view-b2b" style="display:none;">
+  <div id="page-b2b" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2B</div>
+    </div>
+
     <div class="card">
-      <h3>B2B</h3>
       <button class="ghost" onclick="comingSoon('B2B 卸货（散箱/整托/整柜）')">卸货（散箱/整托/整柜）（待上线） <small>준비중</small></button>
-      <button class="ghost" onclick="comingSoon('B2B 工单操作')">工单操作（待上线） <small>준비중</small></button>
+      <button class="ghost" onclick="comingSoon('B2B 工单操作')">工单操作（待上线） <small>준备중</small></button>
       <button class="ghost" onclick="comingSoon('B2B 装车装柜')">装车装柜（待上线） <small>준비중</small></button>
     </div>
   </div>
 
-  <!-- Scanner -->
-  <div class="card" id="scannerCard" style="display:none;">
-    <h3 id="scanTitle">扫码 / 스캔</h3>
-    <div id="reader" style="width:100%"></div>
-    <button onclick="closeScanner()">关闭扫码 <small>닫기</small></button>
+  <!-- ===== Fullscreen Scanner Overlay ===== -->
+  <div id="scannerOverlay" class="overlay">
+    <div class="overlayCard">
+      <div class="overlayTop">
+        <div class="grow">
+          <div class="overlayTitle" id="scanTitle">扫码 / 스캔</div>
+          <div class="overlayHint">请对准二维码 / 바코드를 화면 중앙에 맞추세요</div>
+        </div>
+        <button class="small" style="width:auto;min-width:90px" onclick="closeScanner()">关闭 <small>닫기</small></button>
+      </div>
+      <div id="reader"></div>
+    </div>
   </div>
 
 <script>
@@ -243,14 +292,38 @@ const ENTRY_DA      = "entry.1739228641";
 const ENTRY_BIZ     = "entry.1934762358";
 const ENTRY_TASK    = "entry.53174481";
 
+/** ===== Hash Router ===== */
+const pages = ["home","badge","b2c_menu","b2c_pick","b2c_relabel","import","b2b"];
+function setHash(page){ location.hash = "#/" + page; }
+function getHashPage(){
+  const h = (location.hash || "").trim();
+  if(!h || h === "#") return "home";
+  const m = h.match(/^#\/(.+)$/);
+  if(!m) return "home";
+  const p = m[1];
+  return pages.includes(p) ? p : "home";
+}
+function renderPages(){
+  const cur = getHashPage();
+  for(const p of pages){
+    const el = document.getElementById("page-"+p);
+    if(el) el.style.display = (p===cur) ? "block" : "none";
+  }
+  if(cur==="b2c_pick"){ syncLeaderPickUI(); renderActiveLists(); }
+  if(cur==="b2c_relabel"){ renderActiveLists(); }
+}
+window.addEventListener("hashchange", renderPages);
+function go(p){ setHash(p); }
+function back(){ if(history.length > 1) history.back(); else setHash("home"); }
+if(!location.hash) setHash("home");
+renderPages();
+
 /** ===== Global state ===== */
 let scanner = null;
 let scanMode = null; // wave | badgeBind | labor | leaderLoginPick | leaderEndPick
 let currentSessionId = localStorage.getItem("pick_session_id") || null;
-
 let scannedWaves = new Set();
 let lastScanAt = 0;
-
 let currentDaId = localStorage.getItem("da_id") || null;
 
 /** labor */
@@ -258,22 +331,21 @@ let laborAction = null;
 let laborBiz = null;
 let laborTask = null;
 
-/** participants (active in current session) */
-let activePick = new Set();     // Set of badge raw
+/** participants */
+let activePick = new Set();
 let activeRelabel = new Set();
 
-/** RELABEL timer */
+/** relabel timer */
 let relabelTimerHandle = null;
 let relabelStartTs = null;
 
-/** Leader gating (PICK) */
+/** leader */
 let leaderPickBadge = localStorage.getItem("leader_pick_badge") || null;
 let leaderPickOk = false;
 let pendingLeaderEnd = null;
 
 /** ===== Utilities ===== */
 function nowTs(){ return String(Date.now()); }
-
 function makeDeviceId(){
   let id = localStorage.getItem("device_id");
   if(!id){
@@ -282,7 +354,6 @@ function makeDeviceId(){
   }
   return id;
 }
-
 function makePickSessionId(){
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -293,22 +364,18 @@ function makePickSessionId(){
   const ss = String(d.getSeconds()).padStart(2,'0');
   return `PS-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${makeDeviceId().slice(-6)}`;
 }
-
 function setStatus(msg, ok=true){
   const el = document.getElementById("status");
   el.className = "pill " + (ok ? "ok" : "bad");
   el.textContent = msg;
 }
-
 function refreshUI(){
   document.getElementById("device").textContent = makeDeviceId();
   document.getElementById("session").textContent = currentSessionId || "无 / 없음";
 }
 refreshUI();
 
-function comingSoon(name){
-  alert(`${name}\n还未上线 / 아직 준비중`);
-}
+function comingSoon(name){ alert(`${name}\n还未上线 / 아직 준비중`); }
 
 /** ===== Network pill ===== */
 function refreshNet(){
@@ -320,19 +387,6 @@ function refreshNet(){
 window.addEventListener("online", refreshNet);
 window.addEventListener("offline", refreshNet);
 refreshNet();
-
-/** ===== Views ===== */
-function showView(view){
-  const views = ["home","badge","b2c","import","b2b"];
-  for(const v of views){
-    document.getElementById("view-"+v).style.display = (v===view) ? "block" : "none";
-    document.getElementById("tab-"+v).classList.toggle("active", v===view);
-  }
-}
-function showB2CPick(){ document.getElementById("b2c-pick-card").style.display = "block"; syncLeaderPickUI(); renderActiveLists(); }
-function hideB2CPick(){ document.getElementById("b2c-pick-card").style.display = "none"; }
-function showB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "block"; renderActiveLists(); }
-function hideB2CRelabel(){ document.getElementById("b2c-relabel-card").style.display = "none"; }
 
 /** ===== Submit event ===== */
 async function submitEvent({event, biz, task, pick_session_id, wave_id="", da_id=""}){
@@ -365,7 +419,6 @@ function isOperatorBadge(raw){
 
 /** ===== Active list rendering ===== */
 function badgeDisplay(raw){
-  // 优先显示名字；没有名字就显示ID
   const p = parseBadge(raw);
   return p.name ? `${p.id}｜${p.name}` : p.id;
 }
@@ -386,7 +439,7 @@ function renderActiveLists(){
   if(rl) rl.innerHTML = renderSetToHtml(activeRelabel);
 }
 
-/** ===== Leader gating UI ===== */
+/** ===== Leader UI ===== */
 function syncLeaderPickUI(){
   const info = document.getElementById("leaderInfoPick");
   const btnEnd = document.getElementById("btnEndPick");
@@ -408,11 +461,11 @@ async function leaderLoginPick(){
     return;
   }
   scanMode = "leaderLoginPick";
-  document.getElementById("scanTitle").innerHTML = "扫码组长工牌登录 <small>팀장 명찰 로그인</small>";
+  document.getElementById("scanTitle").textContent = "扫码组长工牌登录 / 팀장 로그인";
   await openScannerCommon();
 }
 
-/** ===== Multi-person labor ===== */
+/** ===== Labor ===== */
 async function joinWork(biz, task){
   if(!currentSessionId){
     setStatus("请先开始该作业再加入 / 먼저 시작", false);
@@ -422,10 +475,9 @@ async function joinWork(biz, task){
   laborBiz = biz;
   laborTask = task;
   scanMode = "labor";
-  document.getElementById("scanTitle").innerHTML = "扫码工牌（加入） <small>명찰 스캔(입장)</small>";
+  document.getElementById("scanTitle").textContent = "扫码工牌（加入） / 명찰 스캔(입장)";
   await openScannerCommon();
 }
-
 async function leaveWork(biz, task){
   if(!currentSessionId){
     setStatus("请先开始该作业再退出 / 먼저 시작", false);
@@ -435,11 +487,11 @@ async function leaveWork(biz, task){
   laborBiz = biz;
   laborTask = task;
   scanMode = "labor";
-  document.getElementById("scanTitle").innerHTML = "扫码工牌（退出） <small>명찰 스캔(퇴장)</small>";
+  document.getElementById("scanTitle").textContent = "扫码工牌（退出） / 명찰 스캔(퇴장)";
   await openScannerCommon();
 }
 
-/** ===== B2C PICK ===== */
+/** ===== PICK ===== */
 async function startPicking(){
   try{
     if(currentSessionId){
@@ -450,11 +502,9 @@ async function startPicking(){
     localStorage.setItem("pick_session_id", currentSessionId);
     scannedWaves = new Set();
 
-    // reset leader per session
     leaderPickOk = false;
     syncLeaderPickUI();
 
-    // reset participants
     activePick = new Set();
     renderActiveLists();
 
@@ -465,17 +515,15 @@ async function startPicking(){
     setStatus("拣货开始失败 ❌ " + e, false);
   }
 }
-
 async function openScannerWave(){
   if(!currentSessionId){
     setStatus("请先开始拣货 / 먼저 시작", false);
     return;
   }
   scanMode = "wave";
-  document.getElementById("scanTitle").innerHTML = "扫码波次 <small>웨이브 스캔</small>";
+  document.getElementById("scanTitle").textContent = "扫码波次 / 웨이브 스캔";
   await openScannerCommon();
 }
-
 async function endPicking(){
   try{
     if(!currentSessionId){
@@ -491,17 +539,16 @@ async function endPicking(){
       alert("还有人员未退出作业，不能结束拣货。\n请让所有参与者点【退出作业】并扫码工牌。");
       return;
     }
-
     pendingLeaderEnd = { biz:"B2C", task:"PICK" };
     scanMode = "leaderEndPick";
-    document.getElementById("scanTitle").innerHTML = "扫码组长工牌确认结束 <small>팀장 명찰로 종료 확인</small>";
+    document.getElementById("scanTitle").textContent = "扫码组长工牌确认结束 / 팀장 종료 확인";
     await openScannerCommon();
   }catch(e){
     setStatus("结束确认失败 ❌ " + e, false);
   }
 }
 
-/** ===== B2C RELABEL (0 extra scan) ===== */
+/** ===== RELABEL ===== */
 function setRelabelTimerText(text){
   const el = document.getElementById("relabelTimer");
   if(el) el.textContent = text;
@@ -516,7 +563,6 @@ function startRelabelTimer(){
     setRelabelTimerText(`进行中 / 진행중: ${mm}:${ss}`);
   }, 1000);
 }
-
 async function startRelabel(){
   try{
     if(currentSessionId){
@@ -526,7 +572,6 @@ async function startRelabel(){
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
 
-    // reset participants
     activeRelabel = new Set();
     renderActiveLists();
 
@@ -541,7 +586,6 @@ async function startRelabel(){
     setStatus("换单开始失败 ❌ " + e, false);
   }
 }
-
 async function endRelabel(){
   try{
     if(!currentSessionId){
@@ -549,7 +593,7 @@ async function endRelabel(){
       return;
     }
     if(activeRelabel.size > 0){
-      setStatus("还有人员未退出，建议先 leave（否则人时会不准）", false);
+      setStatus("还有人员未退出，建议先 leave（否则人时不准）", false);
       alert("还有人员未退出作业。\n建议先让所有参与者点【退出作业】扫码，再结束。");
       return;
     }
@@ -596,7 +640,6 @@ function makeDaId(){
   localStorage.setItem(key, String(seq));
   return `DA-${yyyy}${mm}${dd}-${String(seq).padStart(2,'0')}`;
 }
-
 async function dailyCheckin(){
   try{
     const da = makeDaId();
@@ -621,7 +664,6 @@ async function dailyCheckin(){
     setDaStatus("失败 ❌ " + e, false);
   }
 }
-
 async function bulkDailyCheckin(){
   try{
     const n = parseInt(document.getElementById("daCount").value || "0", 10);
@@ -663,7 +705,7 @@ async function bindBadgeToSession(){
       return;
     }
     scanMode = "badgeBind";
-    document.getElementById("scanTitle").innerHTML = "扫码工牌（绑定） <small>명찰 스캔(연결)</small>";
+    document.getElementById("scanTitle").textContent = "扫码工牌（绑定） / 명찰 연결";
     await openScannerCommon();
   }catch(e){
     setDaStatus("绑定失败 ❌ " + e, false);
@@ -712,9 +754,15 @@ function generateEmployeeBadges(){
   alert(`已生成员工工牌 ✅ 共 ${names.length} 个\n建议截图/打印此页面发放。`);
 }
 
-/** ===== Scanner common ===== */
+/** ===== Fullscreen scanner ===== */
+function showOverlay(){
+  document.getElementById("scannerOverlay").classList.add("show");
+}
+function hideOverlay(){
+  document.getElementById("scannerOverlay").classList.remove("show");
+}
 async function openScannerCommon(){
-  document.getElementById("scannerCard").style.display = "block";
+  showOverlay();
   document.getElementById("reader").innerHTML = "";
 
   try{ if(scanner){ await scanner.stop(); await scanner.clear(); } }catch(e){}
@@ -729,14 +777,8 @@ async function openScannerCommon(){
 
     if(scanMode === "wave"){
       const ok = /^\d{4}-\d{4}-\d+$/.test(code);
-      if(!ok){
-        setStatus("波次格式不对（例：2026-0224-6）", false);
-        return;
-      }
-      if(scannedWaves.has(code)){
-        setStatus("重复波次已忽略 ⏭️ " + code, false);
-        return;
-      }
+      if(!ok){ setStatus("波次格式不对（例：2026-0224-6）", false); return; }
+      if(scannedWaves.has(code)){ setStatus("重复波次已忽略 ⏭️ " + code, false); return; }
       scannedWaves.add(code);
 
       await submitEvent({ event:"wave", biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
@@ -746,39 +788,20 @@ async function openScannerCommon(){
     }
 
     if(scanMode === "badgeBind"){
-      if(!isOperatorBadge(code)){
-        setDaStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
-        return;
-      }
+      if(!isOperatorBadge(code)){ setDaStatus("无效工牌（DA-... 或 EMP-...|名字）", false); return; }
       const p = parseBadge(code);
       await submitEvent({ event:"bind_daily", biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
-
-      currentDaId = p.raw;
-      localStorage.setItem("da_id", currentDaId);
-      refreshDaUI();
-
+      currentDaId = p.raw; localStorage.setItem("da_id", currentDaId); refreshDaUI();
       alert("已绑定工牌 ✅ " + p.raw);
       setDaStatus("绑定成功 ✅", true);
-      await closeScanner();
-      return;
+      await closeScanner(); return;
     }
 
     if(scanMode === "labor"){
-      if(!isOperatorBadge(code)){
-        setStatus("无效工牌（DA-... 或 EMP-...|名字）", false);
-        return;
-      }
+      if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... 或 EMP-...|名字）", false); return; }
       const p = parseBadge(code);
+      await submitEvent({ event: laborAction, biz: laborBiz, task: laborTask, pick_session_id: currentSessionId, da_id: p.raw });
 
-      await submitEvent({
-        event: laborAction,
-        biz: laborBiz,
-        task: laborTask,
-        pick_session_id: currentSessionId,
-        da_id: p.raw
-      });
-
-      // update active list
       if(laborTask === "PICK"){
         if(laborAction === "join") activePick.add(p.raw);
         if(laborAction === "leave") activePick.delete(p.raw);
@@ -791,52 +814,27 @@ async function openScannerCommon(){
 
       alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p.raw);
       setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p.raw, true);
-      await closeScanner();
-      return;
+      await closeScanner(); return;
     }
 
     if(scanMode === "leaderLoginPick"){
-      if(!isOperatorBadge(code)){
-        setStatus("无效工牌（请扫 EMP-xxx|名字）", false);
-        return;
-      }
+      if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       const p = parseBadge(code);
-      if(!p.id.startsWith("EMP-")){
-        setStatus("请扫组长员工工牌（EMP-xxx|名字）", false);
-        return;
-      }
-      leaderPickBadge = p.raw;
-      localStorage.setItem("leader_pick_badge", leaderPickBadge);
-      leaderPickOk = true;
-      syncLeaderPickUI();
+      if(!p.id.startsWith("EMP-")){ setStatus("请扫组长员工工牌（EMP-xxx|名字）", false); return; }
+      leaderPickBadge = p.raw; localStorage.setItem("leader_pick_badge", leaderPickBadge);
+      leaderPickOk = true; syncLeaderPickUI();
       alert("组长登录成功 ✅ " + p.raw);
       setStatus("组长登录成功 ✅", true);
-      await closeScanner();
-      return;
+      await closeScanner(); return;
     }
 
     if(scanMode === "leaderEndPick"){
-      if(!isOperatorBadge(code)){
-        setStatus("无效工牌（请扫 EMP-xxx|名字）", false);
-        return;
-      }
+      if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       const p = parseBadge(code);
-      if(!p.id.startsWith("EMP-")){
-        setStatus("请扫组长员工工牌（EMP-xxx|名字）", false);
-        return;
-      }
+      if(!p.id.startsWith("EMP-")){ setStatus("请扫组长员工工牌（EMP-xxx|名字）", false); return; }
+      if(activePick.size > 0){ setStatus("还有人员未退出，禁止结束", false); alert("还有人员未退出作业，不能结束拣货。"); await closeScanner(); return; }
 
-      // final safety check (still)
-      if(activePick.size > 0){
-        setStatus("还有人员未退出，禁止结束", false);
-        alert("还有人员未退出作业，不能结束拣货。");
-        await closeScanner();
-        return;
-      }
-
-      leaderPickBadge = p.raw;
-      localStorage.setItem("leader_pick_badge", leaderPickBadge);
-
+      leaderPickBadge = p.raw; localStorage.setItem("leader_pick_badge", leaderPickBadge);
       const biz = pendingLeaderEnd?.biz || "B2C";
       const task = pendingLeaderEnd?.task || "PICK";
       await submitEvent({ event:"end", biz: biz, task: task, pick_session_id: currentSessionId });
@@ -848,27 +846,20 @@ async function openScannerCommon(){
       localStorage.removeItem("pick_session_id");
       pendingLeaderEnd = null;
       leaderPickOk = false;
-      refreshUI();
-      syncLeaderPickUI();
+      refreshUI(); syncLeaderPickUI();
 
-      await closeScanner();
-      return;
+      await closeScanner(); return;
     }
   };
 
   try{
-    await scanner.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      onScan
-    );
+    await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 240, height: 240 } }, onScan);
   }catch(e){
     const cams = await Html5Qrcode.getCameras();
     const camId = cams?.[0]?.id;
     await scanner.start(camId, { fps:10, qrbox:{width:240,height:240}}, onScan);
   }
 }
-
 async function closeScanner(){
   try{
     if(scanner){
@@ -877,7 +868,7 @@ async function closeScanner(){
       scanner = null;
     }
   }catch(e){}
-  document.getElementById("scannerCard").style.display = "none";
+  hideOverlay();
 }
 </script>
 </body>
