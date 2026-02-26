@@ -1,11 +1,12 @@
 // app.js - 业务逻辑（路由/状态/扫码/提交/跨设备锁/防重复/全局在岗看板）
 // ✅ 工牌：日当(每日) + 日当(长期带名字) + 员工工牌 + 绑定
-// ✅ 作业：PICK / RELABEL / PACK（PICK/RELABEL 必须先点开始；PACK 可直接 join 自动建 session）
+// ✅ 作业：PICK / RELABEL / PACK / TALLY（PICK/RELABEL/TALLY 必须先点开始；PACK 可直接 join 自动建 session）
+// ✅ TALLY：入库理货（入库单号扫码去重计数，不记单号时长）
 // ✅ 跨设备锁：同一工牌不能被多设备重复 join
 // ✅ 防卡重复：scanBusy + 本地去重(event_id) + leave 必须在岗 + 扫码成功先 pause 摄像头
 // ✅ 防脏数据：leave 先写表再 release lock；session closed 禁止 join/leave
 // ✅ PACK 自动建 session 时补 start 事件
-// ✅ NEW：总控台 global_menu + 全局在岗 active_now（从 LOCK_URL?action=active_now 拉取）
+// ✅ 总控台 global_menu + 全局在岗 active_now（从 LOCK_URL?action=active_now 拉取）
 
 /** ===== Form ===== */
 var FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
@@ -23,7 +24,7 @@ var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdi
 var LOCK_TTL_MS = 8 * 60 * 60 * 1000;
 
 /** ===== Router ===== */
-var pages = ["home","badge","global_menu","b2c_menu","b2c_pick","b2c_relabel","b2c_pack","active_now"];
+var pages = ["home","badge","global_menu","b2c_menu","b2c_tally","b2c_pick","b2c_relabel","b2c_pack","active_now"];
 
 function setHash(page){ location.hash = "#/" + page; }
 function getHashPage(){
@@ -45,6 +46,7 @@ function renderPages(){
 
   // 页面进入时刷新
   if(cur==="badge"){ refreshUI(); refreshDaUI(); }
+  if(cur==="b2c_tally"){ restoreState(); renderActiveLists(); renderInboundCountUI(); refreshUI(); }
   if(cur==="b2c_pick"){ syncLeaderPickUI(); restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
@@ -63,6 +65,8 @@ var scanMode = null;
 var currentSessionId = localStorage.getItem("pick_session_id") || null;
 
 var scannedWaves = new Set();
+var scannedInbounds = new Set(); // ✅ TALLY：入库单号去重集合
+
 var lastScanAt = 0;
 var scanBusy = false;
 
@@ -75,6 +79,7 @@ var laborTask = null;
 var activePick = new Set();
 var activeRelabel = new Set();
 var activePack = new Set();
+var activeTally = new Set(); // ✅ TALLY：在岗
 
 var relabelTimerHandle = null;
 var relabelStartTs = null;
@@ -88,6 +93,8 @@ function keyWaves(){ return "waves_" + (currentSessionId || "NA"); }
 function keyActivePick(){ return "activePick_" + (currentSessionId || "NA"); }
 function keyActiveRelabel(){ return "activeRelabel_" + (currentSessionId || "NA"); }
 function keyActivePack(){ return "activePack_" + (currentSessionId || "NA"); }
+function keyActiveTally(){ return "activeTally_" + (currentSessionId || "NA"); }
+function keyInbounds(){ return "inbounds_" + (currentSessionId || "NA"); }
 
 /** ===== session closed ===== */
 function keyClosed(){ return "session_closed_" + (currentSessionId || "NA"); }
@@ -139,13 +146,23 @@ function persistState(){
   localStorage.setItem(keyActivePick(), JSON.stringify(Array.from(activePick)));
   localStorage.setItem(keyActiveRelabel(), JSON.stringify(Array.from(activeRelabel)));
   localStorage.setItem(keyActivePack(), JSON.stringify(Array.from(activePack)));
+
+  // ✅ TALLY
+  localStorage.setItem(keyActiveTally(), JSON.stringify(Array.from(activeTally)));
+  localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
 }
+
 function restoreState(){
   if(!currentSessionId) return;
+
   try{ scannedWaves = new Set(JSON.parse(localStorage.getItem(keyWaves()) || "[]")); }catch(e){ scannedWaves = new Set(); }
   try{ activePick = new Set(JSON.parse(localStorage.getItem(keyActivePick()) || "[]")); }catch(e){ activePick = new Set(); }
   try{ activeRelabel = new Set(JSON.parse(localStorage.getItem(keyActiveRelabel()) || "[]")); }catch(e){ activeRelabel = new Set(); }
   try{ activePack = new Set(JSON.parse(localStorage.getItem(keyActivePack()) || "[]")); }catch(e){ activePack = new Set(); }
+
+  // ✅ TALLY
+  try{ activeTally = new Set(JSON.parse(localStorage.getItem(keyActiveTally()) || "[]")); }catch(e){ activeTally = new Set(); }
+  try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
 }
 
 /** ===== Utils ===== */
@@ -296,8 +313,10 @@ function isAlreadyActive(task, badge){
   if(task==="PICK") return activePick.has(badge);
   if(task==="RELABEL") return activeRelabel.has(badge);
   if(task==="PACK") return activePack.has(badge);
+  if(task==="TALLY") return activeTally.has(badge);
   return false;
 }
+
 function applyActive(task, action, badge){
   if(task==="PICK"){
     if(action==="join") activePick.add(badge);
@@ -311,6 +330,10 @@ function applyActive(task, action, badge){
     if(action==="join") activePack.add(badge);
     if(action==="leave") activePack.delete(badge);
   }
+  if(task==="TALLY"){
+    if(action==="join") activeTally.add(badge);
+    if(action==="leave") activeTally.delete(badge);
+  }
 }
 
 /** ===== Render lists ===== */
@@ -323,6 +346,7 @@ function renderSetToHtml(setObj){
   if(arr.length === 0) return '<span class="muted">无 / 없음</span>';
   return arr.map(function(x){ return '<span class="tag">' + badgeDisplay(x) + '</span>'; }).join("");
 }
+
 function renderActiveLists(){
   var pc = document.getElementById("pickCount");
   var pl = document.getElementById("pickActiveList");
@@ -339,6 +363,28 @@ function renderActiveLists(){
   var kl = document.getElementById("packActiveList");
   if(kc) kc.textContent = String(activePack.size);
   if(kl) kl.innerHTML = renderSetToHtml(activePack);
+
+  // ✅ TALLY
+  var tc = document.getElementById("tallyCount");
+  var tl = document.getElementById("tallyActiveList");
+  if(tc) tc.textContent = String(activeTally.size);
+  if(tl) tl.innerHTML = renderSetToHtml(activeTally);
+}
+
+function renderInboundCountUI(){
+  var c = document.getElementById("inboundCount");
+  var l = document.getElementById("inboundList");
+  if(c) c.textContent = String(scannedInbounds.size);
+  if(l){
+    if(scannedInbounds.size === 0){
+      l.innerHTML = '<span class="muted">无 / 없음</span>';
+    }else{
+      // 只展示最近 30 个，避免太长卡 UI
+      var arr = Array.from(scannedInbounds);
+      var show = arr.slice(Math.max(0, arr.length - 30));
+      l.innerHTML = show.map(function(x){ return '<span class="tag">'+String(x)+'</span>'; }).join(" ");
+    }
+  }
 }
 
 /** ===== Global Active Now ===== */
@@ -355,6 +401,7 @@ function fmtDur(ms){
   if(h>0) return h + "h" + String(m).padStart(2,"0") + "m";
   return m + "m";
 }
+
 async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
@@ -410,6 +457,83 @@ async function refreshActiveNow(){
     setStatus("在岗拉取异常 ❌ " + e, false);
     alert("在岗拉取异常：" + e);
   }
+}
+
+/** ===== TALLY (B2C) ===== */
+async function startTally(){
+  try{
+    if(currentSessionId){
+      restoreState(); renderActiveLists(); renderInboundCountUI(); refreshUI();
+      setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
+      return;
+    }
+
+    currentSessionId = makePickSessionId();
+    localStorage.setItem("pick_session_id", currentSessionId);
+
+    setSessionClosed(false);
+
+    // reset state
+    activeTally = new Set();
+    scannedInbounds = new Set();
+    persistState();
+
+    var evId = makeEventId({ event:"start", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
+    if(!hasRecent(evId)) addRecent(evId);
+
+    await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+
+    refreshUI();
+    renderActiveLists();
+    renderInboundCountUI();
+    setStatus("理货开始已记录 ✅", true);
+  }catch(e){
+    setStatus("理货开始失败 ❌ " + e, false);
+  }
+}
+
+async function endTally(){
+  try{
+    if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
+    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
+
+    if(activeTally.size > 0){
+      setStatus("还有人员未退出，禁止结束", false);
+      alert("还有人员未退出作业，不能结束理货。");
+      return;
+    }
+
+    var evId = makeEventId({ event:"end", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
+    if(!hasRecent(evId)) addRecent(evId);
+
+    await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+    setSessionClosed(true);
+
+    setStatus("理货结束已记录 ✅", true);
+
+    // cleanup keys（结束即清理整个 session，和其他模块一致）
+    localStorage.removeItem(keyWaves());
+    localStorage.removeItem(keyActivePick());
+    localStorage.removeItem(keyActiveRelabel());
+    localStorage.removeItem(keyActivePack());
+    localStorage.removeItem(keyActiveTally());
+    localStorage.removeItem(keyInbounds());
+    localStorage.removeItem(keyRecent());
+
+    currentSessionId = null;
+    localStorage.removeItem("pick_session_id");
+    refreshUI();
+  }catch(e){
+    setStatus("理货结束失败 ❌ " + e, false);
+  }
+}
+
+async function openScannerInboundCount(){
+  if(!currentSessionId){ setStatus("请先开始理货 / 먼저 시작", false); return; }
+  if(isSessionClosed()){ setStatus("该趟次已结束，禁止扫码", false); return; }
+  scanMode = "inbound_count";
+  document.getElementById("scanTitle").textContent = "扫码入库单号（计数/去重）";
+  await openScannerCommon();
 }
 
 /** ===== PICK ===== */
@@ -553,6 +677,8 @@ async function endRelabel(){
     localStorage.removeItem(keyActivePick());
     localStorage.removeItem(keyActiveRelabel());
     localStorage.removeItem(keyActivePack());
+    localStorage.removeItem(keyActiveTally());
+    localStorage.removeItem(keyInbounds());
     localStorage.removeItem(keyRecent());
 
     currentSessionId = null;
@@ -617,6 +743,7 @@ async function leaveWork(biz, task){
   if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
   if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
+  if(task === "TALLY" && activeTally.size === 0){ alert("当前没有人在理货作业中（无需退出）。"); return; }
 
   laborAction = "leave"; laborBiz = biz; laborTask = task;
   scanMode = "labor";
@@ -796,8 +923,6 @@ function generateEmployeeBadges(){
 
 /** ===== Leader UI ===== */
 function syncLeaderPickUI(){
-  // ui.js 里可能也有同名函数；为了避免覆盖，这里只在缺失时兜底
-  // 如果你 ui.js 已经提供了 syncLeaderPickUI，这段不会影响（后加载会覆盖前加载）
   var info = document.getElementById("leaderInfoPick");
   var btnEnd = document.getElementById("btnEndPick");
   if(!info || !btnEnd) return;
@@ -835,7 +960,49 @@ async function openScannerCommon(){
     if(now - lastScanAt < 900) return;
     lastScanAt = now;
 
-    /** wave */
+    /** inbound_count (TALLY) */
+    if(scanMode === "inbound_count"){
+      var code2 = decodedText.trim();
+      if(!code2){
+        setStatus("入库单号为空", false);
+        return;
+      }
+
+      scanBusy = true;
+      await pauseScanner();
+      try{
+        if(scannedInbounds.has(code2)){
+          setStatus("已记录（去重）✅ " + code2, true);
+          alert("已记录（去重）✅\n" + code2);
+          renderInboundCountUI();
+          await closeScanner();
+          return;
+        }
+
+        scannedInbounds.add(code2);
+        persistState();
+        renderInboundCountUI();
+
+        var evIdX = makeEventId({ event:"wave", biz:"B2C", task:"TALLY", wave_id: code2, badgeRaw:"" });
+        if(!hasRecent(evIdX)) addRecent(evIdX);
+
+        await submitEvent({ event:"wave", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
+
+        setStatus("已记录入库单 ✅ " + code2, true);
+        alert("已记录入库单 ✅\n" + code2 + "\n当前累计：" + scannedInbounds.size);
+        await closeScanner();
+        return;
+
+      }catch(e){
+        setStatus("提交失败 ❌ " + e, false);
+        alert("提交失败，请重试。\n" + e);
+        return;
+      }finally{
+        scanBusy = false;
+      }
+    }
+
+    /** wave (PICK) */
     if(scanMode === "wave"){
       if(isSessionClosed()){ setStatus("该趟次已结束，禁止扫码波次", false); await closeScanner(); return; }
 
@@ -1037,6 +1204,8 @@ async function openScannerCommon(){
         localStorage.removeItem(keyActivePick());
         localStorage.removeItem(keyActiveRelabel());
         localStorage.removeItem(keyActivePack());
+        localStorage.removeItem(keyActiveTally());
+        localStorage.removeItem(keyInbounds());
         localStorage.removeItem(keyRecent());
 
         currentSessionId = null;
