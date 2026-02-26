@@ -1,5 +1,8 @@
 // app.js - 业务逻辑（路由/状态/扫码/提交/跨设备锁/防重复）
-// ✅ 规则：PICK/RELABEL 必须先点“开始”才能 join/leave；PACK 允许直接 join（自动建 session）
+// ✅ 工牌：日当(每日) + 日当(长期带名字) + 员工工牌 + 绑定
+// ✅ 作业：PICK / RELABEL / PACK（PICK/RELABEL 必须先点开始；PACK 可直接 join 自动建 session）
+// ✅ 跨设备锁：同一工牌不能被多设备重复 join
+// ✅ 防卡重复：scanBusy + 本地去重 + leave 必须在岗
 
 /** ===== Form ===== */
 var FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
@@ -35,6 +38,7 @@ function renderPages(){
     var el = document.getElementById("page-"+p);
     if(el) el.style.display = (p===cur) ? "block" : "none";
   }
+  if(cur==="badge"){ refreshUI(); refreshDaUI(); }
   if(cur==="b2c_pick"){ syncLeaderPickUI(); restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
@@ -222,9 +226,10 @@ function parseBadge(code){
 }
 function isDaId(id){ return /^DA-\d{8}-\d+$/.test(id); }
 function isEmpId(id){ return /^EMP-[A-Za-z0-9_-]+$/.test(id); }
+function isPermanentDaId(id){ return /^DAF-\d+$/.test(id); } // ✅ 长期日当：DAF-001
 function isOperatorBadge(raw){
   var p = parseBadge(raw);
-  return isDaId(p.id) || isEmpId(p.id);
+  return isDaId(p.id) || isEmpId(p.id) || isPermanentDaId(p.id);
 }
 
 /** ===== Active ===== */
@@ -444,6 +449,168 @@ async function leaveWork(biz, task){
   await openScannerCommon();
 }
 
+/** ===== Daily badge (daily DA-YYYYMMDD-xx) ===== */
+function setDaStatus(msg, ok){
+  if(ok===undefined) ok=true;
+  var el = document.getElementById("daStatus");
+  if(!el) return;
+  el.className = ok ? "ok" : "bad";
+  el.textContent = msg;
+}
+function refreshDaUI(){
+  var el = document.getElementById("daText");
+  if(el) el.textContent = currentDaId || "无";
+}
+function makeDaId(){
+  var d = new Date();
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var dd = String(d.getDate()).padStart(2,'0');
+  var key = "da_seq_" + yyyy + mm + dd;
+  var seq = parseInt(localStorage.getItem(key) || "0", 10) + 1;
+  localStorage.setItem(key, String(seq));
+  return "DA-" + yyyy + mm + dd + "-" + String(seq).padStart(2,'0');
+}
+async function dailyCheckin(){
+  try{
+    var da = makeDaId();
+    currentDaId = da;
+    localStorage.setItem("da_id", currentDaId);
+
+    await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+    refreshDaUI();
+
+    alert("日当工牌已生成 ✅ " + da);
+    setDaStatus("已记录 ✅", true);
+
+    var listEl = document.getElementById("badgeList");
+    if(listEl){
+      var box = document.createElement("div");
+      box.style.border = "1px solid #ddd";
+      box.style.borderRadius = "12px";
+      box.style.padding = "10px";
+      box.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">'+da+'</div><div id="qr_'+da+'"></div>';
+      listEl.prepend(box);
+      new QRCode(document.getElementById("qr_"+da), { text: da, width: 160, height: 160 });
+    }
+  }catch(e){
+    setDaStatus("失败 ❌ " + e, false);
+  }
+}
+async function bulkDailyCheckin(){
+  try{
+    var n = parseInt((document.getElementById("daCount")||{}).value || "0", 10);
+    if(!n || n < 1) return alert("请输入人数 N（>=1）");
+    var listEl = document.getElementById("badgeList");
+    if(!listEl) return;
+
+    listEl.innerHTML = "";
+    setDaStatus("生成中...", true);
+
+    for(var i=0;i<n;i++){
+      var da = makeDaId();
+      await submitEvent({ event:"daily_checkin", biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+
+      var box = document.createElement("div");
+      box.style.border = "1px solid #ddd";
+      box.style.borderRadius = "12px";
+      box.style.padding = "10px";
+      box.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">'+da+'</div><div id="qr_'+da+'"></div>';
+      listEl.appendChild(box);
+      new QRCode(document.getElementById("qr_"+da), { text: da, width: 160, height: 160 });
+
+      currentDaId = da;
+      localStorage.setItem("da_id", currentDaId);
+    }
+    refreshDaUI();
+    setDaStatus("批量生成完成 ✅ 共 "+n+" 个（可截图/打印）", true);
+  }catch(e){
+    setDaStatus("批量生成失败 ❌ " + e, false);
+  }
+}
+
+/** ===== NEW: 长期日当工牌（带名字，可长期用） ===== */
+function padNum(n, width){
+  var s = String(n);
+  return s.length>=width ? s : ("0".repeat(width-s.length)+s);
+}
+function normalizeNames(text){
+  return (text||"").split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+}
+
+function generatePermanentDaBadges(){
+  var ta = document.getElementById("daPermanentNames");
+  if(!ta){ alert("index.html 里还没加 长期日当工牌输入框（daPermanentNames）"); return; }
+  var names = normalizeNames(ta.value);
+  if(names.length===0){ alert("请先输入长期日当姓名（每行一个）"); return; }
+
+  var start = parseInt((document.getElementById("daPermanentStart")||{}).value || "1", 10);
+  var pad = parseInt((document.getElementById("daPermanentPad")||{}).value || "3", 10);
+
+  var listEl = document.getElementById("daPermanentList");
+  if(!listEl){ alert("index.html 里还没加 输出区（daPermanentList）"); return; }
+  listEl.innerHTML = "";
+
+  names.forEach(function(name, idx){
+    var num = start + idx;
+    var id = "DAF-" + padNum(num, pad);
+    var payload = id + "|" + name;
+
+    var box = document.createElement("div");
+    box.style.border = "1px solid #ddd";
+    box.style.borderRadius = "12px";
+    box.style.padding = "10px";
+    box.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">'+payload+'</div><div id="pdaq_'+id+'_'+idx+'"></div>';
+    listEl.appendChild(box);
+    new QRCode(document.getElementById("pdaq_"+id+"_"+idx), { text: payload, width: 160, height: 160 });
+  });
+
+  alert("已生成长期日当工牌 ✅ 共 " + names.length + " 个\n建议截图/打印发放（以后每天都用这一张）。");
+}
+
+/** ===== Bind badge to session ===== */
+async function bindBadgeToSession(){
+  try{
+    if(!currentSessionId){ setDaStatus("请先开始某个作业再绑定 / 먼저 시작", false); return; }
+    scanMode = "badgeBind";
+    document.getElementById("scanTitle").textContent = "扫码工牌（绑定） / 명찰 연결";
+    await openScannerCommon();
+  }catch(e){
+    setDaStatus("绑定失败 ❌ " + e, false);
+  }
+}
+
+/** ===== Employee badges ===== */
+function generateEmployeeBadges(){
+  var ta = document.getElementById("empNames");
+  if(!ta){ alert("找不到 empNames"); return; }
+  var names = normalizeNames(ta.value);
+  if(names.length===0){ alert("请先输入员工名字（每行一个）"); return; }
+
+  var start = parseInt((document.getElementById("empStart")||{}).value || "1", 10);
+  var pad = parseInt((document.getElementById("empPad")||{}).value || "3", 10);
+
+  var listEl = document.getElementById("empBadgeList");
+  if(!listEl){ alert("找不到 empBadgeList"); return; }
+  listEl.innerHTML = "";
+
+  names.forEach(function(name, idx){
+    var num = start + idx;
+    var empId = "EMP-" + padNum(num, pad);
+    var payload = empId + "|" + name;
+
+    var box = document.createElement("div");
+    box.style.border = "1px solid #ddd";
+    box.style.borderRadius = "12px";
+    box.style.padding = "10px";
+    box.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">'+payload+'</div><div id="empqr_'+empId+'_'+idx+'"></div>';
+    listEl.appendChild(box);
+    new QRCode(document.getElementById("empqr_"+empId+"_"+idx), { text: payload, width: 160, height: 160 });
+  });
+
+  alert("已生成员工工牌 ✅ 共 "+names.length+" 个\n建议截图/打印此页面发放。");
+}
+
 /** ===== Scanner overlay ===== */
 function showOverlay(){ document.getElementById("scannerOverlay").classList.add("show"); }
 function hideOverlay(){ document.getElementById("scannerOverlay").classList.remove("show"); }
@@ -463,6 +630,7 @@ async function openScannerCommon(){
     if(now - lastScanAt < 900) return;
     lastScanAt = now;
 
+    /** wave */
     if(scanMode === "wave"){
       var ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){ setStatus("波次格式不对（例：2026-0224-6）", false); return; }
@@ -479,11 +647,28 @@ async function openScannerCommon(){
       return;
     }
 
+    /** badgeBind */
+    if(scanMode === "badgeBind"){
+      if(!isOperatorBadge(code)){ setDaStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
+      var p = parseBadge(code);
+
+      scanBusy = true;
+      try{
+        await submitEvent({ event:"bind_daily", biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
+        currentDaId = p.raw; localStorage.setItem("da_id", currentDaId); refreshDaUI();
+        alert("已绑定工牌 ✅ " + p.raw);
+        setDaStatus("绑定成功 ✅", true);
+        await closeScanner();
+      } finally { scanBusy = false; }
+      return;
+    }
+
+    /** labor */
     if(scanMode === "labor"){
-      if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... 或 EMP-...|名字）", false); return; }
+      if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p2 = parseBadge(code);
 
-      // ✅ leave 必须是名单里的人
+      // leave 必须在岗
       if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
         alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
         setStatus("不在岗，无法退出 ❌", false);
@@ -491,7 +676,7 @@ async function openScannerCommon(){
         return;
       }
 
-      // ✅ join 本地去重
+      // join 本地去重
       if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
         alert("已在作业中 ✅ " + p2.raw);
         setStatus("已在作业中 ✅", true);
@@ -522,7 +707,7 @@ async function openScannerCommon(){
           try{ await lockReleaseRemote(p2.raw, laborTask); }catch(e){}
         }
 
-        // 先更新本地状态（让 UI 立即变化）
+        // 先更新本地状态
         applyActive(laborTask, laborAction, p2.raw);
         renderActiveLists();
         persistState();
@@ -543,6 +728,7 @@ async function openScannerCommon(){
       }
     }
 
+    /** leader login pick */
     if(scanMode === "leaderLoginPick"){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p3 = parseBadge(code);
@@ -559,6 +745,7 @@ async function openScannerCommon(){
       return;
     }
 
+    /** leader end pick */
     if(scanMode === "leaderEndPick"){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p4 = parseBadge(code);
