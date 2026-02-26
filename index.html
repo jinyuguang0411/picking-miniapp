@@ -228,6 +228,11 @@
 
       <button class="primary" onclick="openScannerWave()">扫码波次 <small>웨이브</small></button>
 
+      <div class="row" style="margin-top:4px;">
+        <input id="waveInput" type="text" placeholder="手动输入波次（例：2026-0224-6）" style="margin:0;" />
+        <button class="primary small" style="width:auto;min-width:80px;margin:0 0 0 8px;" onclick="submitWaveManual()">提交 <small>전송</small></button>
+      </div>
+
       <button class="primary" onclick="leaderLoginPick()">组长登录（扫码） <small>팀장 로그인</small></button>
       <div class="pill" id="leaderInfoPick" style="margin-top:6px;">组长未登录 / 팀장 미로그인</div>
 
