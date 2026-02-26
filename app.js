@@ -575,6 +575,34 @@ async function openScannerWave(){
   await openScannerCommon();
 }
 
+async function submitWaveManual(){
+  if(!currentSessionId){ setStatus("请先开始拣货 / 먼저 시작", false); return; }
+  if(isSessionClosed()){ setStatus("该趟次已结束，禁止提交波次", false); return; }
+  var input = document.getElementById("waveInput");
+  if(!input) return;
+  var code = (input.value || "").trim();
+  if(!code){ setStatus("请输入波次号 / 웨이브 번호 입력", false); return; }
+  var ok = /^\d{4}-\d{4}-\d+$/.test(code);
+  if(!ok){ setStatus("波次格式不对（例：2026-0224-6）", false); return; }
+  if(scannedWaves.has(code)){ setStatus("重复波次已忽略 ⏭️ " + code, false); return; }
+
+  scannedWaves.add(code);
+  persistState();
+
+  try{
+    var evId = makeEventId({ event:"wave", biz:"B2C", task:"PICK", wave_id: code, badgeRaw:"" });
+    if(hasRecent(evId)){ setStatus("重复提交已忽略 ⏭️ " + code, false); return; }
+    addRecent(evId);
+
+    await submitEvent({ event:"wave", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
+    setStatus("已记录波次 ✅ " + code, true);
+    alert("已记录波次 ✅ " + code);
+    input.value = "";
+  }catch(e){
+    setStatus("提交失败 ❌ " + e, false);
+  }
+}
+
 async function leaderLoginPick(){
   if(!currentSessionId){
     setStatus("请先开始拣货再组长登录 / 먼저 시작", false);
@@ -697,6 +725,7 @@ async function joinWork(biz, task){
       currentSessionId = makePickSessionId();
       localStorage.setItem("pick_session_id", currentSessionId);
 
+      activePack = new Set();
       setSessionClosed(false);
       persistState();
       refreshUI();
@@ -926,6 +955,13 @@ function syncLeaderPickUI(){
   var info = document.getElementById("leaderInfoPick");
   var btnEnd = document.getElementById("btnEndPick");
   if(!info || !btnEnd) return;
+
+  // session ended: hide end button to prevent accidental tap
+  if(currentSessionId && isSessionClosed()){
+    info.textContent = "本趟次已结束 ✅";
+    btnEnd.style.display = "none";
+    return;
+  }
 
   if(leaderPickOk && leaderPickBadge){
     info.textContent = "组长已登录 ✅ " + leaderPickBadge;
