@@ -196,15 +196,18 @@ window.addEventListener("offline", refreshNet);
 async function submitEvent(o){
   var fd = new FormData();
 
-  // event 字段里打包 event|event_id（不改表结构的最快方案）
-  var ev = o.event || "";
-  if(o.event_id) ev = ev + "|" + o.event_id;
+  // ✅ event 保持原值（start/join/leave/end/wave…）
+  fd.append(ENTRY_EVENT, o.event || "");
 
-  fd.append(ENTRY_EVENT, ev);
   fd.append(ENTRY_DEVICE, makeDeviceId());
   fd.append(ENTRY_SESSION, o.pick_session_id || "NA");
   fd.append(ENTRY_WAVE, o.wave_id || "");
-  fd.append(ENTRY_TS, o.ts || nowTs()); // 允许外部传 ts
+  
+  // ✅ ts 字段打包：ts_ms|event_id
+  var ts = o.ts || nowTs();
+  if(o.event_id) ts = ts + "|" + o.event_id;
+  fd.append(ENTRY_TS, ts);
+
   fd.append(ENTRY_DA, o.da_id || "");
   fd.append(ENTRY_BIZ, o.biz || "");
   fd.append(ENTRY_TASK, o.task || "");
