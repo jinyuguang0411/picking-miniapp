@@ -251,7 +251,7 @@ function jsonp(url, params){
     var timer = setTimeout(function(){
       cleanup();
       reject(new Error("jsonp timeout"));
-    }, 8000);
+    }, 15000);
 
     function cleanup(){
       try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
