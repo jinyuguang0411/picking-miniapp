@@ -116,7 +116,6 @@ function addRecent(eventId){
 }
 function makeEventId(params){
   // params: {event, biz, task, wave_id, badgeRaw}
-  var ts = Date.now(); // ms
   return [
     makeDeviceId(),
     (currentSessionId||"NA"),
@@ -124,11 +123,9 @@ function makeEventId(params){
     (params.biz||""),
     (params.task||""),
     (params.event||""),
-    (params.badgeRaw||""),
-    String(ts)
+    (params.badgeRaw||"")
   ].join("|");
 }
-
 function persistState(){
   if(!currentSessionId) return;
   localStorage.setItem(keyWaves(), JSON.stringify(Array.from(scannedWaves)));
