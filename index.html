@@ -78,6 +78,28 @@
     </div>
 
     <div class="card">
+  <h3>长期日当工牌 / 장기 일용직 명찰（DAF-001|名字）</h3>
+  <div class="muted">一人一张，长期使用（不需要每天生成）。扫码记录里会带名字。</div>
+
+  <small>姓名列表（每行一个） / 이름 목록</small>
+  <textarea id="daPermanentNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
+
+  <div class="row">
+    <div>
+      <small>起始编号 / 시작 번호</small>
+      <input id="daPermanentStart" type="number" min="1" max="9999" value="1" />
+    </div>
+    <div>
+      <small>位数（001/01） / 자릿수</small>
+      <input id="daPermanentPad" type="number" min="2" max="6" value="3" />
+    </div>
+  </div>
+
+  <button class="primary" onclick="generatePermanentDaBadges()">批量生成长期日当工牌 <small>일괄 생성</small></button>
+  <div id="daPermanentList" style="margin-top:10px;" class="grid2"></div>
+</div>
+
+    <div class="card">
       <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
       <div class="muted">名字一行一个粘贴 → 生成二维码：EMP-001|张三（支持韩文姓名）。</div>
 
