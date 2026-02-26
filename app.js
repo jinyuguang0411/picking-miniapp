@@ -1,10 +1,11 @@
-// app.js - 业务逻辑（路由/状态/扫码/提交/跨设备锁/防重复)
+// app.js - 业务逻辑（路由/状态/扫码/提交/跨设备锁/防重复/全局在岗看板）
 // ✅ 工牌：日当(每日) + 日当(长期带名字) + 员工工牌 + 绑定
 // ✅ 作业：PICK / RELABEL / PACK（PICK/RELABEL 必须先点开始；PACK 可直接 join 自动建 session）
 // ✅ 跨设备锁：同一工牌不能被多设备重复 join
 // ✅ 防卡重复：scanBusy + 本地去重(event_id) + leave 必须在岗 + 扫码成功先 pause 摄像头
 // ✅ 防脏数据：leave 先写表再 release lock；session closed 禁止 join/leave
 // ✅ PACK 自动建 session 时补 start 事件
+// ✅ NEW：总控台 global_menu + 全局在岗 active_now（从 LOCK_URL?action=active_now 拉取）
 
 /** ===== Form ===== */
 var FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
@@ -22,7 +23,7 @@ var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdi
 var LOCK_TTL_MS = 8 * 60 * 60 * 1000;
 
 /** ===== Router ===== */
-var pages = ["home","badge","b2c_menu","b2c_pick","b2c_relabel","b2c_pack"];
+var pages = ["home","badge","global_menu","b2c_menu","b2c_pick","b2c_relabel","b2c_pack","active_now"];
 
 function setHash(page){ location.hash = "#/" + page; }
 function getHashPage(){
@@ -33,6 +34,7 @@ function getHashPage(){
   var p = m[1];
   return pages.indexOf(p) >= 0 ? p : "home";
 }
+
 function renderPages(){
   var cur = getHashPage();
   for(var i=0;i<pages.length;i++){
@@ -40,10 +42,13 @@ function renderPages(){
     var el = document.getElementById("page-"+p);
     if(el) el.style.display = (p===cur) ? "block" : "none";
   }
+
+  // 页面进入时刷新
   if(cur==="badge"){ refreshUI(); refreshDaUI(); }
   if(cur==="b2c_pick"){ syncLeaderPickUI(); restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="active_now"){ refreshActiveNow(); }
 }
 window.addEventListener("hashchange", renderPages);
 
@@ -84,7 +89,7 @@ function keyActivePick(){ return "activePick_" + (currentSessionId || "NA"); }
 function keyActiveRelabel(){ return "activeRelabel_" + (currentSessionId || "NA"); }
 function keyActivePack(){ return "activePack_" + (currentSessionId || "NA"); }
 
-/** ===== NEW: session closed ===== */
+/** ===== session closed ===== */
 function keyClosed(){ return "session_closed_" + (currentSessionId || "NA"); }
 function isSessionClosed(){
   if(!currentSessionId) return false;
@@ -95,7 +100,7 @@ function setSessionClosed(flag){
   localStorage.setItem(keyClosed(), flag ? "1" : "0");
 }
 
-/** ===== NEW: local idempotency (dedupe) ===== */
+/** ===== local idempotency (dedupe) ===== */
 var RECENT_MAX = 80;
 function keyRecent(){ return "recentEventIds_" + (currentSessionId || "NA"); }
 function loadRecent(){
@@ -116,6 +121,7 @@ function addRecent(eventId){
 }
 function makeEventId(params){
   // params: {event, biz, task, wave_id, badgeRaw}
+  // ✅ 稳定键（不带时间），用于“连扫同一张码”的本地去重
   return [
     makeDeviceId(),
     (currentSessionId||"NA"),
@@ -126,6 +132,7 @@ function makeEventId(params){
     (params.badgeRaw||"")
   ].join("|");
 }
+
 function persistState(){
   if(!currentSessionId) return;
   localStorage.setItem(keyWaves(), JSON.stringify(Array.from(scannedWaves)));
@@ -193,14 +200,14 @@ window.addEventListener("offline", refreshNet);
 async function submitEvent(o){
   var fd = new FormData();
 
-  // ✅ event 保持原值（start/join/leave/end/wave…）
+  // event 必须是表单选项之一（不要拼接）
   fd.append(ENTRY_EVENT, o.event || "");
 
   fd.append(ENTRY_DEVICE, makeDeviceId());
   fd.append(ENTRY_SESSION, o.pick_session_id || "NA");
   fd.append(ENTRY_WAVE, o.wave_id || "");
-  
-  // ✅ ts 字段打包：ts_ms|event_id
+
+  // ts 字段打包：ts_ms|event_id（event_id 用于幂等/统计，可选）
   var ts = o.ts || nowTs();
   if(o.event_id) ts = ts + "|" + o.event_id;
   fd.append(ENTRY_TS, ts);
@@ -278,7 +285,7 @@ function parseBadge(code){
 }
 function isDaId(id){ return /^DA-\d{8}-\d+$/.test(id); }
 function isEmpId(id){ return /^EMP-[A-Za-z0-9_-]+$/.test(id); }
-function isPermanentDaId(id){ return /^DAF-\d+$/.test(id); } // ✅ 长期日当：DAF-001
+function isPermanentDaId(id){ return /^DAF-\d+$/.test(id); } // 长期日当：DAF-001
 function isOperatorBadge(raw){
   var p = parseBadge(raw);
   return isDaId(p.id) || isEmpId(p.id) || isPermanentDaId(p.id);
@@ -327,10 +334,82 @@ function renderActiveLists(){
   if(rc) rc.textContent = String(activeRelabel.size);
   if(rl) rl.innerHTML = renderSetToHtml(activeRelabel);
 
-  var kc = document.getElementById("packCount");
+  // PACK：兼容 packCount 和 packCountPeople
+  var kc = document.getElementById("packCount") || document.getElementById("packCountPeople");
   var kl = document.getElementById("packActiveList");
   if(kc) kc.textContent = String(activePack.size);
   if(kl) kl.innerHTML = renderSetToHtml(activePack);
+}
+
+/** ===== Global Active Now ===== */
+function esc(s){
+  return String(s||"").replace(/[&<>"']/g,function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);
+  });
+}
+function fmtDur(ms){
+  if(!ms || ms<0) return "";
+  var sec = Math.floor(ms/1000);
+  var h = Math.floor(sec/3600);
+  var m = Math.floor((sec%3600)/60);
+  if(h>0) return h + "h" + String(m).padStart(2,"0") + "m";
+  return m + "m";
+}
+async function refreshActiveNow(){
+  try{
+    setStatus("拉取在岗中... ⏳", true);
+    var res = await jsonp(LOCK_URL, { action:"active_now" });
+
+    if(!res || res.ok !== true){
+      setStatus("在岗拉取失败 ❌ " + (res && res.error ? res.error : ""), false);
+      alert("在岗拉取失败：" + (res && res.error ? res.error : "unknown"));
+      return;
+    }
+
+    var active = res.active || [];
+    var asof = res.asof || Date.now();
+
+    var meta = document.getElementById("activeNowMeta");
+    if(meta) meta.textContent = "人数: " + active.length + " ｜ " + new Date(asof).toLocaleString();
+
+    var by = {};
+    active.forEach(function(x){
+      var k = (x.biz||"") + " / " + (x.task||"");
+      by[k] = (by[k]||0) + 1;
+    });
+
+    var sumEl = document.getElementById("activeNowSummary");
+    if(sumEl){
+      var keys = Object.keys(by).sort();
+      sumEl.innerHTML = keys.length
+        ? keys.map(function(k){ return '<span class="tag">'+esc(k)+': '+by[k]+'</span>'; }).join(" ")
+        : '<span class="muted">当前无人在岗</span>';
+    }
+
+    var listEl = document.getElementById("activeNowList");
+    if(listEl){
+      if(active.length===0){
+        listEl.innerHTML = '<div class="muted">当前无人在岗</div>';
+      }else{
+        var now = Date.now();
+        listEl.innerHTML = active.map(function(x){
+          var dur = fmtDur(now - (x.since||now));
+          return (
+            '<div style="border:1px solid #eee;border-radius:12px;padding:10px;margin:8px 0;">' +
+              '<div style="font-weight:700;">'+esc(x.badge)+'</div>' +
+              '<div class="muted" style="margin-top:4px;">作业: '+esc(x.biz)+' / '+esc(x.task)+' ｜ 在岗: '+esc(dur)+'</div>' +
+              '<div class="muted" style="margin-top:4px;">session: '+esc(x.session||"")+' ｜ device: '+esc(x.device_id||"")+'</div>' +
+            '</div>'
+          );
+        }).join("");
+      }
+    }
+
+    setStatus("在岗已更新 ✅", true);
+  }catch(e){
+    setStatus("在岗拉取异常 ❌ " + e, false);
+    alert("在岗拉取异常：" + e);
+  }
 }
 
 /** ===== PICK ===== */
@@ -344,7 +423,6 @@ async function startPicking(){
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
 
-    // NEW: mark session open
     setSessionClosed(false);
 
     scannedWaves = new Set();
@@ -354,7 +432,6 @@ async function startPicking(){
     leaderPickOk = false;
     syncLeaderPickUI();
 
-    // NEW: event id
     var evId = makeEventId({ event:"start", biz:"B2C", task:"PICK", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)) addRecent(evId);
 
@@ -419,6 +496,7 @@ function startRelabelTimer(){
     setRelabelTimerText("进行中: " + mm + ":" + ss);
   }, 1000);
 }
+
 async function startRelabel(){
   try{
     if(currentSessionId){
@@ -429,7 +507,6 @@ async function startRelabel(){
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
 
-    // NEW: mark session open
     setSessionClosed(false);
 
     activeRelabel = new Set();
@@ -449,6 +526,7 @@ async function startRelabel(){
     setStatus("换单开始失败 ❌ " + e, false);
   }
 }
+
 async function endRelabel(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
@@ -464,7 +542,6 @@ async function endRelabel(){
 
     await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
 
-    // NEW: mark session closed
     setSessionClosed(true);
 
     if(relabelTimerHandle) clearInterval(relabelTimerHandle);
@@ -488,26 +565,22 @@ async function endRelabel(){
 
 /** ===== Labor (join/leave) ===== */
 async function joinWork(biz, task){
-  // ✅ 只有 PACK 允许无 session 自动创建
+  // only PACK allows auto session
   if(!currentSessionId){
     if(task === "PACK"){
       currentSessionId = makePickSessionId();
       localStorage.setItem("pick_session_id", currentSessionId);
 
-      // NEW: mark session open
       setSessionClosed(false);
-
       persistState();
       refreshUI();
 
-      // NEW: PACK 自动建 session 时补 start 事件（用于统计边界）
+      // PACK auto session -> write start once (best effort)
       try{
-        var evId = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
-        if(!hasRecent(evId)) addRecent(evId);
-        await submitEvent({ event:"start", event_id: evId, biz: biz, task:"PACK", pick_session_id: currentSessionId });
-      }catch(e){
-        // start 失败不阻断 join（现场优先），但会影响统计边界
-      }
+        var evIdStart = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
+        if(!hasRecent(evIdStart)) addRecent(evIdStart);
+        await submitEvent({ event:"start", event_id: evIdStart, biz: biz, task:"PACK", pick_session_id: currentSessionId });
+      }catch(e){}
     }else{
       setStatus("请先开始该作业再加入 / 먼저 시작", false);
       alert("请先点【开始】再加入作业。");
@@ -540,7 +613,7 @@ async function leaveWork(biz, task){
     return;
   }
 
-  // ✅ 没人加入就不允许退出（避免无限 leave）
+  // no one active -> disallow leave spam
   if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
   if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
@@ -638,7 +711,7 @@ async function bulkDailyCheckin(){
   }
 }
 
-/** ===== NEW: 长期日当工牌（带名字，可长期用） ===== */
+/** ===== Long-term DA badges (DAF-xxx|name) ===== */
 function padNum(n, width){
   var s = String(n);
   return s.length>=width ? s : ("0".repeat(width-s.length)+s);
@@ -721,11 +794,28 @@ function generateEmployeeBadges(){
   alert("已生成员工工牌 ✅ 共 "+names.length+" 个\n建议截图/打印此页面发放。");
 }
 
-/** ===== Scanner overlay ===== */
-function showOverlay(){ document.getElementById("scannerOverlay").classList.add("show"); }
-function hideOverlay(){ document.getElementById("scannerOverlay").classList.remove("show"); }
+/** ===== Leader UI ===== */
+function syncLeaderPickUI(){
+  // ui.js 里可能也有同名函数；为了避免覆盖，这里只在缺失时兜底
+  // 如果你 ui.js 已经提供了 syncLeaderPickUI，这段不会影响（后加载会覆盖前加载）
+  var info = document.getElementById("leaderInfoPick");
+  var btnEnd = document.getElementById("btnEndPick");
+  if(!info || !btnEnd) return;
 
-/** ===== NEW: pause scanner to prevent duplicate callbacks ===== */
+  if(leaderPickOk && leaderPickBadge){
+    info.textContent = "组长已登录 ✅ " + leaderPickBadge;
+    btnEnd.style.display = "block";
+  }else{
+    info.textContent = leaderPickBadge ? ("组长未确认（本趟需登录）: " + leaderPickBadge) : "组长未登录 / 팀장 미로그인";
+    btnEnd.style.display = "none";
+  }
+}
+
+/** ===== Scanner overlay ===== */
+function showOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.add("show"); }
+function hideOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.remove("show"); }
+
+/** pause scanner to prevent duplicate callbacks */
 async function pauseScanner(){
   try{ if(scanner) await scanner.pause(true); }catch(e){}
 }
@@ -757,7 +847,7 @@ async function openScannerCommon(){
       persistState();
 
       scanBusy = true;
-      await pauseScanner(); // ✅ 先 pause 摄像头，再 submit
+      await pauseScanner();
       try{
         var evId = makeEventId({ event:"wave", biz:"B2C", task:"PICK", wave_id: code, badgeRaw:"" });
         if(hasRecent(evId)){
@@ -813,7 +903,7 @@ async function openScannerCommon(){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p2 = parseBadge(code);
 
-      // leave 必须在岗
+      // leave must be active
       if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
         alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
         setStatus("不在岗，无法退出 ❌", false);
@@ -821,7 +911,7 @@ async function openScannerCommon(){
         return;
       }
 
-      // join 本地去重（active）
+      // join dedupe by active
       if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
         alert("已在作业中 ✅ " + p2.raw);
         setStatus("已在作业中 ✅", true);
@@ -830,11 +920,10 @@ async function openScannerCommon(){
       }
 
       scanBusy = true;
-      await pauseScanner(); // ✅ 先 pause 摄像头，再处理锁/提交
+      await pauseScanner();
       setStatus("处理中... 请稍等 ⏳", true);
 
       try{
-        // NEW: event idempotency (local)
         var evId = makeEventId({
           event: laborAction,
           biz: laborBiz,
@@ -850,7 +939,7 @@ async function openScannerCommon(){
         }
         addRecent(evId);
 
-        // join：先 acquire lock
+        // join: acquire lock first
         if(laborAction === "join"){
           var r1 = await lockAcquireRemote(p2.raw, laborTask, currentSessionId);
           if(!r1 || r1.ok !== true){
@@ -866,7 +955,7 @@ async function openScannerCommon(){
           }
         }
 
-        // ✅ 关键：先写入表（带 event_id）
+        // ✅ write sheet first
         await submitEvent({
           event: laborAction,
           event_id: evId,
@@ -876,12 +965,12 @@ async function openScannerCommon(){
           da_id: p2.raw
         });
 
-        // ✅ 再更新本地状态（让表成为事实来源）
+        // ✅ then update local state
         applyActive(laborTask, laborAction, p2.raw);
         renderActiveLists();
         persistState();
 
-        // ✅ leave 最后 release lock（避免“锁先放，表没写”）
+        // ✅ leave: release lock at last
         if(laborAction === "leave"){
           try{ await lockReleaseRemote(p2.raw, laborTask); }catch(e){}
         }
@@ -939,7 +1028,6 @@ async function openScannerCommon(){
 
         await submitEvent({ event:"end", event_id: evIdEnd, biz: biz, task: task, pick_session_id: currentSessionId });
 
-        // NEW: mark session closed
         setSessionClosed(true);
 
         alert("已由组长确认结束 ✅ " + p4.raw);
