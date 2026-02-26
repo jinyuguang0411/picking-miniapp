@@ -36,6 +36,9 @@
     <div class="card">
       <h3>入口 / 메뉴</h3>
       <div class="gridHome">
+        <button class="primary" onclick="go('global_menu')">
+          总控台 <small>Global</small><br><small>全局在岗 / 总览</small>
+        </button>
         <button class="primary" onclick="go('badge')">
           工牌 <small>명찰</small><br><small>日当/员工 批量生成</small>
         </button>
@@ -52,6 +55,52 @@
     </div>
   </div>
 
+  <!-- GLOBAL MENU -->
+<div id="page-global_menu" class="page" style="display:none;">
+  <div class="topbar">
+    <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+    <div class="grow pill">总控台 / Global</div>
+  </div>
+<!-- ACTIVE NOW (GLOBAL) -->
+<div id="page-active_now" class="page" style="display:none;">
+  <div class="topbar">
+    <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+    <div class="grow pill">全局在岗 / Active Now</div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="primary" onclick="refreshActiveNow()">刷新 <small>새로고침</small></button>
+      <div id="activeNowMeta" class="muted"></div>
+    </div>
+
+    <div id="activeNowSummary" style="margin-top:10px;"></div>
+    <div id="activeNowList" style="margin-top:10px;"></div>
+  </div>
+</div>
+  <div class="card">
+    <button class="primary" onclick="go('active_now')">
+      全局在岗（已上线） <small>Active Now</small>
+    </button>
+
+    <button class="primary" onclick="go('badge')">
+      工牌 / Badge <small>명찰</small>
+    </button>
+
+    <button class="primary" onclick="go('b2c_menu')">
+      B2C <small>피킹/라벨/포장</small>
+    </button>
+
+    <button class="ghost" onclick="comingSoon('IMPORT（待上线）')">
+      IMPORT（待上线） <small>준비중</small>
+    </button>
+
+    <button class="ghost" onclick="comingSoon('B2B（待上线）')">
+      B2B（待上线） <small>준비중</small>
+    </button>
+  </div>
+</div>
+  
   <!-- BADGE -->
   <div id="page-badge" class="page" style="display:none;">
     <div class="topbar">
@@ -206,7 +255,7 @@
 <button class="primary" onclick="leaveWork('B2C','PACK')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
 
       <div class="listBox">
-        <div><b>当前在岗 / 작업중</b>：<span id="packCountPeople">0</span></div>
+        <div><b>当前在岗 / 작업중</b>：<span id="packCount">0</span></div>
         <div id="packActiveList" class="muted">无 / 없음</div>
       </div>
 
