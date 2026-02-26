@@ -167,10 +167,44 @@
     </div>
 
     <div class="card">
+      <!-- ✅ NEW: TALLY 放在拣货上面 -->
+      <button class="primary" onclick="go('b2c_tally')">入库理货（已上线） <small>리호</small></button>
+
       <button class="primary" onclick="go('b2c_relabel')">扫码换单贴单（已上线） <small>라벨</small></button>
       <button class="primary" onclick="go('b2c_pick')">拣货（已上线） <small>피킹</small></button>
       <button class="primary" onclick="go('b2c_pack')">验货打包贴单（开始/结束扫工牌） <small>검수·포장·라벨</small></button>
       <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
+    </div>
+  </div>
+
+  <!-- ✅ B2C TALLY -->
+  <div id="page-b2c_tally" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 入库理货 / 리호</div>
+    </div>
+
+    <div class="card">
+      <div class="muted">口径：开始/结束 + 人员加入/退出 + 入库单号扫码（去重计数）。</div>
+
+      <button class="primary" onclick="startTally()">开始理货 <small>시작</small></button>
+
+      <button class="primary" onclick="joinWork('B2C','TALLY')">加入作业（扫工牌） <small>참여</small></button>
+      <button class="primary" onclick="leaveWork('B2C','TALLY')">退出作业（扫工牌） <small>퇴장</small></button>
+
+      <div class="listBox">
+        <div><b>当前参与名单 / 참여자</b>：<span id="tallyCount">0</span></div>
+        <div id="tallyActiveList" class="muted">无 / 없음</div>
+      </div>
+
+      <button class="primary" onclick="openScannerInboundCount()">扫码入库单号（计数/去重） <small>입고번호</small></button>
+
+      <div class="listBox">
+        <div><b>已扫入库单（去重）</b>：<span id="inboundCount">0</span></div>
+        <div id="inboundList" class="muted">无 / 없음</div>
+      </div>
+
+      <button class="primary" onclick="endTally()">结束理货 <small>종료</small></button>
     </div>
   </div>
 
