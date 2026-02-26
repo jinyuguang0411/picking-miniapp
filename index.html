@@ -56,72 +56,39 @@
   </div>
 
   <!-- GLOBAL MENU -->
-<div id="page-global_menu" class="page" style="display:none;">
-  <div class="topbar">
-    <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-    <div class="grow pill">总控台 / Global</div>
-  </div>
-
-  <div class="card">
-    <button class="primary" onclick="go('active_now')">全局在岗（已上线） <small>Active Now</small></button>
-    <button class="primary" onclick="go('badge')">工牌 / Badge <small>명찰</small></button>
-    <button class="primary" onclick="go('b2c_menu')">B2C <small>피킹/라벨/포장</small></button>
-    <button class="ghost" onclick="comingSoon('进口快件（待上线）')">进口快件（待上线）</button>
-    <button class="ghost" onclick="comingSoon('B2B（待上线）')">B2B（待上线）</button>
-  </div>
-</div>
-
-<!-- ACTIVE NOW (GLOBAL) -->
-<div id="page-active_now" class="page" style="display:none;">
-  <div class="topbar">
-    <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-    <div class="grow pill">全局在岗 / Active Now</div>
-  </div>
-
-  <div class="card">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button class="primary" onclick="refreshActiveNow()">刷新 <small>새로고침</small></button>
-      <div id="activeNowMeta" class="muted"></div>
+  <div id="page-global_menu" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">总控台 / Global</div>
     </div>
 
-    <div id="activeNowSummary" style="margin-top:10px;"></div>
-    <div id="activeNowList" style="margin-top:10px;"></div>
+    <div class="card">
+      <button class="primary" onclick="go('active_now')">全局在岗（已上线） <small>Active Now</small></button>
+      <button class="primary" onclick="go('badge')">工牌 / Badge <small>명찰</small></button>
+      <button class="primary" onclick="go('b2c_menu')">B2C <small>피킹/라벨/포장</small></button>
+      <button class="ghost" onclick="comingSoon('进口快件（待上线）')">进口快件（待上线）</button>
+      <button class="ghost" onclick="comingSoon('B2B（待上线）')">B2B（待上线）</button>
+    </div>
   </div>
-</div>
 
-  <div class="card">
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button class="primary" onclick="refreshActiveNow()">刷新 <small>새로고침</small></button>
-      <div id="activeNowMeta" class="muted"></div>
+  <!-- ACTIVE NOW (GLOBAL) -->
+  <div id="page-active_now" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">全局在岗 / Active Now</div>
     </div>
 
-    <div id="activeNowSummary" style="margin-top:10px;"></div>
-    <div id="activeNowList" style="margin-top:10px;"></div>
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="primary" onclick="refreshActiveNow()">刷新 <small>새로고침</small></button>
+        <div id="activeNowMeta" class="muted"></div>
+      </div>
+
+      <div id="activeNowSummary" style="margin-top:10px;"></div>
+      <div id="activeNowList" style="margin-top:10px;"></div>
+    </div>
   </div>
-</div>
-  <div class="card">
-    <button class="primary" onclick="go('active_now')">
-      全局在岗（已上线） <small>Active Now</small>
-    </button>
 
-    <button class="primary" onclick="go('badge')">
-      工牌 / Badge <small>명찰</small>
-    </button>
-
-    <button class="primary" onclick="go('b2c_menu')">
-      B2C <small>피킹/라벨/포장</small>
-    </button>
-
-    <button class="ghost" onclick="comingSoon('IMPORT（待上线）')">
-      IMPORT（待上线） <small>준비중</small>
-    </button>
-
-    <button class="ghost" onclick="comingSoon('B2B（待上线）')">
-      B2B（待上线） <small>준비중</small>
-    </button>
-  </div>
-</div>
-  
   <!-- BADGE -->
   <div id="page-badge" class="page" style="display:none;">
     <div class="topbar">
@@ -148,26 +115,26 @@
     </div>
 
     <div class="card">
-  <h3>长期日当工牌 / 장기 일용직 명찰（DAF-001|名字）</h3>
-  <div class="muted">一人一张，长期使用（不需要每天生成）。扫码记录里会带名字。</div>
+      <h3>长期日当工牌 / 장기 일용직 명찰（DAF-001|名字）</h3>
+      <div class="muted">一人一张，长期使用（不需要每天生成）。扫码记录里会带名字。</div>
 
-  <small>姓名列表（每行一个） / 이름 목록</small>
-  <textarea id="daPermanentNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
+      <small>姓名列表（每行一个） / 이름 목록</small>
+      <textarea id="daPermanentNames" placeholder="张三&#10;李四&#10;김민수&#10;박지훈"></textarea>
 
-  <div class="row">
-    <div>
-      <small>起始编号 / 시작 번호</small>
-      <input id="daPermanentStart" type="number" min="1" max="9999" value="1" />
+      <div class="row">
+        <div>
+          <small>起始编号 / 시작 번호</small>
+          <input id="daPermanentStart" type="number" min="1" max="9999" value="1" />
+        </div>
+        <div>
+          <small>位数（001/01） / 자릿수</small>
+          <input id="daPermanentPad" type="number" min="2" max="6" value="3" />
+        </div>
+      </div>
+
+      <button class="primary" onclick="generatePermanentDaBadges()">批量生成长期日当工牌 <small>일괄 생성</small></button>
+      <div id="daPermanentList" style="margin-top:10px;" class="grid2"></div>
     </div>
-    <div>
-      <small>位数（001/01） / 자릿수</small>
-      <input id="daPermanentPad" type="number" min="2" max="6" value="3" />
-    </div>
-  </div>
-
-  <button class="primary" onclick="generatePermanentDaBadges()">批量生成长期日当工牌 <small>일괄 생성</small></button>
-  <div id="daPermanentList" style="margin-top:10px;" class="grid2"></div>
-</div>
 
     <div class="card">
       <h3>员工工牌 / 직원 명찰（EMP-001|名字）</h3>
@@ -202,10 +169,7 @@
     <div class="card">
       <button class="primary" onclick="go('b2c_relabel')">扫码换单贴单（已上线） <small>라벨</small></button>
       <button class="primary" onclick="go('b2c_pick')">拣货（已上线） <small>피킹</small></button>
-
-      <!-- ✅ 新增：PACK -->
       <button class="primary" onclick="go('b2c_pack')">验货打包贴单（开始/结束扫工牌） <small>검수·포장·라벨</small></button>
-
       <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
     </div>
   </div>
@@ -262,7 +226,7 @@
     </div>
   </div>
 
-  <!-- ✅ B2C PACK（开始/结束扫工牌） -->
+  <!-- B2C PACK -->
   <div id="page-b2c_pack" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
@@ -273,7 +237,7 @@
       <div class="pill">✅ 开始=扫工牌；结束=扫工牌（同一工牌不能同时在其它任务中）</div>
 
       <button class="primary" onclick="joinWork('B2C','PACK')">开始作业（扫工牌） <small>시작(명찰 스캔)</small></button>
-<button class="primary" onclick="leaveWork('B2C','PACK')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','PACK')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
 
       <div class="listBox">
         <div><b>当前在岗 / 작업중</b>：<span id="packCount">0</span></div>
