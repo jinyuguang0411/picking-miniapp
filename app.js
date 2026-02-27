@@ -288,7 +288,20 @@ function setStatus(msg, ok){
   el.className = "pill " + (ok ? "ok" : "bad");
   el.textContent = msg;
 }
+// ===== Anti double-click / Net busy guard =====
+var NET_BUSY = false;
 
+function netBusyOn_(action){
+  NET_BUSY = true;
+  // 给用户一个明确提示，避免疯狂连点
+  if(action){
+    setStatus("请求中... " + action + "（请勿重复点击）⏳", true);
+  }
+}
+
+function netBusyOff_(){
+  NET_BUSY = false;
+}
 function refreshUI(){
   var dev = document.getElementById("device");
   var ses = document.getElementById("session");
@@ -309,6 +322,13 @@ window.addEventListener("offline", refreshNet);
 /** ===== JSONP (with PERF) ===== */
 function jsonp(url, params){
   return new Promise(function(resolve, reject){
+    // ✅ 如果上一个请求还没结束，直接拒绝，防止连点堆积导致越来越卡
+var action = (params && params.action) ? String(params.action) : "";
+if(NET_BUSY){
+  reject(new Error("busy: previous request not finished"));
+  return;
+}
+netBusyOn_(action);
     var cb = "cb_" + Math.random().toString(16).slice(2);
     var qs = [];
     for(var k in params){
@@ -340,6 +360,8 @@ function jsonp(url, params){
       try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
       if(script && script.parentNode) script.parentNode.removeChild(script);
       clearTimeout(timer);
+      // ✅ 释放网络忙状态
+      netBusyOff_();
     }
 
     window[cb] = function(data){
