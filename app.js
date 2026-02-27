@@ -966,7 +966,7 @@ function syncLeaderPickUI(){
     info.textContent = "组长已登录 ✅ " + leaderPickBadge;
     btnEnd.style.display = "block";
   }else{
-    info.textContent = leaderPickBadge ? ("组长未确认（本趟需登录）: " + leaderPickBadge) : "组长未登录 / 팀장 미���그인";
+    info.textContent = leaderPickBadge ? ("组长未确认（本趟需登录）: " + leaderPickBadge) : "组长未登录 / 팀장 미 로그인";
     btnEnd.style.display = "none";
   }
 }
