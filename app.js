@@ -1010,9 +1010,9 @@ async function openScannerCommon(){
   scanBusy = true;
 
   try{
-    if(!document.getElementById("scanModal")) { alert("缺少 scanModal"); return; }
+    if(!document.getElementById("scannerOverlay")) { alert("缺少 scannerOverlay"); return; }
 
-    document.getElementById("scanModal").style.display = "flex";
+    document.getElementById("scannerOverlay").style.display = "flex";
 
     if(!scanner){
       scanner = new Html5Qrcode("reader");
@@ -1052,7 +1052,7 @@ async function closeScanner(){
       await scanner.clear();
     }
   }catch(e){}
-  var m = document.getElementById("scanModal");
+  var m = document.getElementById("scannerOverlay");
   if(m) m.style.display = "none";
 }
 
