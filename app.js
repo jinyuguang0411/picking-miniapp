@@ -233,16 +233,22 @@ async function submitEvent(o){
   var res = await jsonp(LOCK_URL, params);
 
   if(!res || res.ok !== true){
-    throw new Error((res && res.error) ? res.error : "event_submit failed");
+    throw new Error((res && res.error) ? res.error : "提交失败：event_submit failed");
   }
 
-  // join 如果被其它设备占用，后端会返回 locked:false
+  // join 被占用：后端返回 ok:true locked:false lock:{task,device_id,session...}
   if(res.locked === false){
     var lk = res.lock || {};
-    throw new Error("locked_by_other: task=" + (lk.task||"") + " device=" + (lk.device_id||"") + " session=" + (lk.session||""));
+    var msg =
+      "该工牌已在其它设备作业中，无法加入。\n\n" +
+      "占用任务: " + (lk.task || "未知") + "\n" +
+      "占用设备: " + (lk.device_id || "未知") + "\n" +
+      "占用趟次: " + (lk.session || "未知") + "\n\n" +
+      "请先在原设备退出（leave）后再加入。";
+    throw new Error(msg);
   }
 
-  return res;
+  return res; // {ok:true, saved:true} or {ok:true, duplicate:true}
 }
 
 /** ===== JSONP ===== */
