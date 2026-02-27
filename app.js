@@ -7,6 +7,7 @@
 // ✅ 防脏数据：leave 先写表再 release lock；session closed 禁止 join/leave
 // ✅ PACK 自动建 session 时补 start 事件
 // ✅ 总控台 global_menu + 全局在岗 active_now（从 LOCK_URL?action=active_now 拉取）
+// ✅ 性能：start/wave/end 等非互斥事件走队列秒响应；join/leave 同步确认锁
 
 /** ===== Form (legacy, kept for compatibility) ===== */
 var FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
@@ -213,44 +214,6 @@ function refreshNet(){
 window.addEventListener("online", refreshNet);
 window.addEventListener("offline", refreshNet);
 
-/** ===== Submit event ===== */
-async function submitEvent(o){
-  // ✅ 通过 GAS WebApp event_submit 写入 Events（JSONP / doGet），绕开 CORS
-  // ✅ 返回 ok/saved/duplicate，失败 throw，交给上层 try/catch 处理
-  var params = {
-    action: "event_submit",
-    event_id: o.event_id || "",
-    event: o.event || "",
-    biz: o.biz || "",
-    task: o.task || "",
-    pick_session_id: o.pick_session_id || "NA",
-    wave_id: o.wave_id || "",
-    da_id: o.da_id || "",
-    device_id: makeDeviceId(),
-    client_ms: (o.client_ms || (o.ts ? parseInt(String(o.ts).split("|")[0], 10) : 0) || Date.now())
-  };
-
-  var res = await jsonp(LOCK_URL, params);
-
-  if(!res || res.ok !== true){
-    throw new Error((res && res.error) ? res.error : "提交失败：event_submit failed");
-  }
-
-  // join 被占用：后端返回 ok:true locked:false lock:{task,device_id,session...}
-  if(res.locked === false){
-    var lk = res.lock || {};
-    var msg =
-      "该工牌已在其它设备作业中，无法加入。\n\n" +
-      "占用任务: " + (lk.task || "未知") + "\n" +
-      "占用设备: " + (lk.device_id || "未知") + "\n" +
-      "占用趟次: " + (lk.session || "未知") + "\n\n" +
-      "请先在原设备退出（leave）后再加入。";
-    throw new Error(msg);
-  }
-
-  return res; // {ok:true, saved:true} or {ok:true, duplicate:true}
-}
-
 /** ===== JSONP ===== */
 function jsonp(url, params){
   return new Promise(function(resolve, reject){
@@ -267,7 +230,7 @@ function jsonp(url, params){
     var timer = setTimeout(function(){
       cleanup();
       reject(new Error("jsonp timeout"));
-    }, 15000);
+    }, 12000);
 
     function cleanup(){
       try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
@@ -289,23 +252,95 @@ function jsonp(url, params){
   });
 }
 
-async function lockAcquireRemote(badgeRaw, task, sessionId){
-  return await jsonp(LOCK_URL, {
-    action: "lock_acquire",
-    badge: badgeRaw,
-    task: task,
-    session: sessionId || "",
-    device_id: makeDeviceId(),
-    ttl_ms: String(LOCK_TTL_MS)
-  });
+/** ===== Async event queue (non-locking events) ===== */
+var QUEUE_KEY = "event_queue_v1";
+var FLUSHING = false;
+
+function loadQueue_(){
+  try{ return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); }catch(e){ return []; }
 }
-async function lockReleaseRemote(badgeRaw, task){
-  return await jsonp(LOCK_URL, {
-    action: "lock_release",
-    badge: badgeRaw,
-    task: task,
-    device_id: makeDeviceId()
-  });
+function saveQueue_(q){
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-200))); // keep last 200
+}
+function enqueueEvent_(payload){
+  var q = loadQueue_();
+  q.push({ payload: payload, tries: 0, enq_ms: Date.now() });
+  saveQueue_(q);
+}
+
+// flush one by one to avoid overloading GAS
+async function flushQueue_(){
+  if(FLUSHING) return;
+  if(!navigator.onLine) return;
+
+  var q = loadQueue_();
+  if(q.length === 0) return;
+
+  FLUSHING = true;
+  try{
+    var keep = [];
+    for(var i=0;i<q.length;i++){
+      var item = q[i];
+      try{
+        item.tries = (item.tries||0) + 1;
+        await submitEventSync_(item.payload, /*silent*/ true);
+      }catch(e){
+        if(item.tries < 8) keep.push(item);
+      }
+    }
+    saveQueue_(keep);
+  } finally {
+    FLUSHING = false;
+  }
+}
+
+setInterval(function(){ flushQueue_(); }, 1500);
+window.addEventListener("online", function(){ flushQueue_(); });
+
+/** ===== Submit event (sync) ===== */
+async function submitEventSync_(o, silent){
+  var params = {
+    action: "event_submit",
+    event_id: o.event_id || "",
+    event: o.event || "",
+    biz: o.biz || "",
+    task: o.task || "",
+    pick_session_id: o.pick_session_id || "NA",
+    wave_id: o.wave_id || "",
+    da_id: o.da_id || "",
+    device_id: makeDeviceId(),
+    client_ms: (o.client_ms || (o.ts ? parseInt(String(o.ts).split("|")[0], 10) : 0) || Date.now())
+  };
+
+  var res = await jsonp(LOCK_URL, params);
+
+  if(!res || res.ok !== true){
+    throw new Error((res && res.error) ? res.error : "提交失败：event_submit failed");
+  }
+
+  if(res.locked === false){
+    var lk = res.lock || {};
+    var msg =
+      "该工牌已在其它设备作业中，无法加入。\n\n" +
+      "占用任务: " + (lk.task || "未知") + "\n" +
+      "占用设备: " + (lk.device_id || "未知") + "\n" +
+      "占用趟次: " + (lk.session || "未知") + "\n\n" +
+      "请先在原设备退出（leave）后再加入。";
+    throw new Error(msg);
+  }
+
+  // optional: silent mode does not update UI here
+  return res;
+}
+
+/** ===== Submit event (FAST UX) =====
+ * - For NON-locking events: enqueue + return immediately
+ * - For join/leave: callers must use submitEventSync_
+ */
+async function submitEvent(o){
+  enqueueEvent_(o);
+  flushQueue_(); // best-effort
+  return { ok:true, queued:true };
 }
 
 /** ===== Badge helpers ===== */
@@ -496,14 +531,15 @@ async function startTally(){
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+      // enqueue (fast)
+      submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
     refreshUI();
     renderActiveLists();
     renderInboundCountUI();
-    setStatus("理货开始已记录 ✅", true);
+    setStatus("理货开始已记录（待上传）✅", true);
   }catch(e){
     setStatus("理货开始失败 ❌ " + e, false);
   }
@@ -522,14 +558,14 @@ async function endTally(){
 
     var evId = makeEventId({ event:"end", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+      submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
     setSessionClosed(true);
-    setStatus("理货结束已记录 ✅", true);
+    setStatus("理货结束已记录（待上传）✅", true);
 
-    // cleanup keys（结束即清理整个 session，和其他模块一致）
+    // cleanup keys
     localStorage.removeItem(keyWaves());
     localStorage.removeItem(keyActivePick());
     localStorage.removeItem(keyActiveRelabel());
@@ -576,12 +612,13 @@ async function startPicking(){
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"PICK", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
+      // enqueue (fast)
+      submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
     refreshUI();
-    setStatus("拣货开始已记录 ✅", true);
+    setStatus("拣货开始已记录（待上传）✅ 现在可立即扫码加入", true);
   }catch(e){
     setStatus("拣货开始失败 ❌ " + e, false);
   }
@@ -662,12 +699,12 @@ async function startRelabel(){
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"RELABEL", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
+      submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
     refreshUI();
-    setStatus("换单开始已记录 ✅", true);
+    setStatus("换单开始已记录（待上传）✅", true);
   }catch(e){
     setStatus("换单开始失败 ❌ " + e, false);
   }
@@ -685,7 +722,7 @@ async function endRelabel(){
 
     var evId = makeEventId({ event:"end", biz:"B2C", task:"RELABEL", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
+      submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
@@ -694,7 +731,7 @@ async function endRelabel(){
     if(relabelTimerHandle) clearInterval(relabelTimerHandle);
     relabelTimerHandle = null;
 
-    setStatus("换单结束已记录 ✅", true);
+    setStatus("换单结束已记录（待上传）✅", true);
 
     localStorage.removeItem(keyWaves());
     localStorage.removeItem(keyActivePick());
@@ -724,11 +761,11 @@ async function joinWork(biz, task){
       persistState();
       refreshUI();
 
-      // PACK auto session -> write start once (best effort)
+      // PACK auto session -> write start once (enqueue, best-effort)
       try{
         var evIdStart = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
         if(!hasRecent(evIdStart)){
-          await submitEvent({ event:"start", event_id: evIdStart, biz: biz, task:"PACK", pick_session_id: currentSessionId });
+          submitEvent({ event:"start", event_id: evIdStart, biz: biz, task:"PACK", pick_session_id: currentSessionId });
           addRecent(evIdStart);
         }
       }catch(e){}
@@ -740,7 +777,7 @@ async function joinWork(biz, task){
   }
 
   if(isSessionClosed()){
-    setStatus("该趟次已结束，禁止加���（请重新开始）", false);
+    setStatus("该趟次已结束，禁止加入（请重新开始）", false);
     alert("该趟次已结束，请点击【开始】新建趟次后再加入。");
     return;
   }
@@ -806,14 +843,14 @@ async function dailyCheckin(){
 
     var evId = makeEventId({ event:"daily_checkin", biz:"DAILY", task:"BADGE", wave_id:"", badgeRaw:da });
     if(!hasRecent(evId)){
-      await submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+      submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
       addRecent(evId);
     }
 
     refreshDaUI();
 
     alert("日当工牌已生成 ✅ " + da);
-    setDaStatus("已记录 ✅", true);
+    setDaStatus("已记录（待上传）✅", true);
 
     var listEl = document.getElementById("badgeList");
     if(listEl){
@@ -844,7 +881,7 @@ async function bulkDailyCheckin(){
       var evId = makeEventId({ event:"daily_checkin", biz:"DAILY", task:"BADGE", wave_id:"", badgeRaw:da });
 
       if(!hasRecent(evId)){
-        await submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+        submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
         addRecent(evId);
       }
 
@@ -860,7 +897,7 @@ async function bulkDailyCheckin(){
       localStorage.setItem("da_id", currentDaId);
     }
     refreshDaUI();
-    setDaStatus("批量生成完成 ✅ 共 "+n+" 个（可截图/打印）", true);
+    setDaStatus("批量生成完成（待上传）✅ 共 "+n+" 个", true);
   }catch(e){
     setDaStatus("批量生成失败 ❌ " + e, false);
   }
@@ -1013,11 +1050,11 @@ async function openScannerCommon(){
 
         var evIdX = makeEventId({ event:"wave", biz:"B2C", task:"TALLY", wave_id: code2, badgeRaw:"" });
         if(!hasRecent(evIdX)){
-          await submitEvent({ event:"wave", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
+          submitEvent({ event:"wave", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
           addRecent(evIdX);
         }
 
-        setStatus("已记录入库单 ✅ " + code2, true);
+        setStatus("已记录入库单（待上传）✅ " + code2, true);
         alert("已记录入库单 ✅\n" + code2 + "\n当前累计：" + scannedInbounds.size);
         await closeScanner();
         return;
@@ -1052,11 +1089,11 @@ async function openScannerCommon(){
           return;
         }
 
-        await submitEvent({ event:"wave", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
+        submitEvent({ event:"wave", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
         addRecent(evId);
 
         alert("已记录波次 ✅ " + code);
-        setStatus("已记录波次 ✅ " + code, true);
+        setStatus("已记录波次（待上传）✅ " + code, true);
         await closeScanner();
       } finally { scanBusy = false; }
       return;
@@ -1078,92 +1115,92 @@ async function openScannerCommon(){
           return;
         }
 
-        await submitEvent({ event:"bind_daily", event_id: evId2, biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
+        submitEvent({ event:"bind_daily", event_id: evId2, biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
         addRecent(evId2);
 
         currentDaId = p.raw; localStorage.setItem("da_id", currentDaId); refreshDaUI();
         alert("已绑定工牌 ✅ " + p.raw);
-        setDaStatus("绑定成功 ✅", true);
+        setDaStatus("绑定成功（待上传）✅", true);
         await closeScanner();
       } finally { scanBusy = false; }
       return;
     }
 
-/** labor */
-if(scanMode === "labor"){
-  if(isSessionClosed()){
-    setStatus("该趟次已结束，禁止 join/leave（请重新开始）", false);
-    alert("该趟次已结束，禁止 join/leave。\n请点击【开始】新建趟次后再操作。");
-    await closeScanner();
-    return;
-  }
+    /** labor (join/leave must be SYNC) */
+    if(scanMode === "labor"){
+      if(isSessionClosed()){
+        setStatus("该趟次已结束，禁止 join/leave（请重新开始）", false);
+        alert("该趟次已结束，禁止 join/leave。\n请点击【开始】新建趟次后再操作。");
+        await closeScanner();
+        return;
+      }
 
-  if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
-  var p2 = parseBadge(code);
+      if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
+      var p2 = parseBadge(code);
 
-  // leave must be active
-  if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
-    alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
-    setStatus("不在岗，无法退出 ❌", false);
-    await closeScanner();
-    return;
-  }
+      // leave must be active
+      if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
+        alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
+        setStatus("不在岗，无法退出 ❌", false);
+        await closeScanner();
+        return;
+      }
 
-  // join dedupe by active
-  if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
-    alert("已在作业中 ✅ " + p2.raw);
-    setStatus("已在作业中 ✅", true);
-    await closeScanner();
-    return;
-  }
+      // join dedupe by active
+      if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
+        alert("已在作业中 ✅ " + p2.raw);
+        setStatus("已在作业中 ✅", true);
+        await closeScanner();
+        return;
+      }
 
-  scanBusy = true;
-  await pauseScanner();
-  setStatus("处理中... 请稍等 ⏳", true);
+      scanBusy = true;
+      await pauseScanner();
+      setStatus("处理中... 请稍等 ⏳（join/leave 需确认锁）", true);
 
-  try{
-    var evId = makeEventId({
-      event: laborAction,
-      biz: laborBiz,
-      task: laborTask,
-      wave_id: "",
-      badgeRaw: p2.raw
-    });
+      try{
+        var evId = makeEventId({
+          event: laborAction,
+          biz: laborBiz,
+          task: laborTask,
+          wave_id: "",
+          badgeRaw: p2.raw
+        });
 
-    if(hasRecent(evId)){
-      setStatus("重复扫描已忽略 ⏭️", false);
-      await closeScanner();
-      return;
+        if(hasRecent(evId)){
+          setStatus("重复扫描已忽略 ⏭️", false);
+          await closeScanner();
+          return;
+        }
+
+        await submitEventSync_({
+          event: laborAction,
+          event_id: evId,
+          biz: laborBiz,
+          task: laborTask,
+          pick_session_id: currentSessionId,
+          da_id: p2.raw
+        });
+
+        addRecent(evId);
+
+        // ✅ then update local state
+        applyActive(laborTask, laborAction, p2.raw);
+        renderActiveLists();
+        persistState();
+
+        alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
+        setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
+        await closeScanner();
+        return;
+      } catch(e){
+        setStatus("提交失败 ❌ " + e, false);
+        alert("提交失败，请重试。\n" + e);
+        return;
+      } finally {
+        scanBusy = false;
+      }
     }
-
-    // ✅ only one source of truth: backend event_submit handles lock consistency for join/leave
-    await submitEvent({
-      event: laborAction,
-      event_id: evId,
-      biz: laborBiz,
-      task: laborTask,
-      pick_session_id: currentSessionId,
-      da_id: p2.raw
-    });
-    addRecent(evId);
-
-    // ✅ then update local state
-    applyActive(laborTask, laborAction, p2.raw);
-    renderActiveLists();
-    persistState();
-
-    alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
-    setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
-    await closeScanner();
-    return;
-  } catch(e){
-    setStatus("提交失败 ❌ " + e, false);
-    alert("提交失败，请重试。\n" + e);
-    return;
-  } finally {
-    scanBusy = false;
-  }
-}
 
     /** leader login pick */
     if(scanMode === "leaderLoginPick"){
@@ -1202,14 +1239,14 @@ if(scanMode === "labor"){
 
         var evIdEnd = makeEventId({ event:"end", biz: biz, task: task, wave_id:"", badgeRaw: p4.raw });
         if(!hasRecent(evIdEnd)){
-          await submitEvent({ event:"end", event_id: evIdEnd, biz: biz, task: task, pick_session_id: currentSessionId });
+          submitEvent({ event:"end", event_id: evIdEnd, biz: biz, task: task, pick_session_id: currentSessionId });
           addRecent(evIdEnd);
         }
 
         setSessionClosed(true);
 
         alert("已由组长确认结束 ✅ " + p4.raw);
-        setStatus("结束已记录 ✅", true);
+        setStatus("结束已记录（待上传）✅", true);
 
         localStorage.removeItem(keyWaves());
         localStorage.removeItem(keyActivePick());
@@ -1258,3 +1295,4 @@ refreshUI();
 restoreState();
 renderActiveLists();
 renderPages();
+flushQueue_();
