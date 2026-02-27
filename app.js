@@ -66,6 +66,11 @@ var scannedBulkOutOrders = new Set();
 
 var lastScanAt = 0;
 var scanBusy = false;
+// ===== Speed test / Perf =====
+var PERF_ON = true; // ✅ 需要测速就 true，不要就 false
+function perfLog_(msg){
+  try{ console.log("[PERF]", msg); }catch(e){}
+}
 
 var currentDaId = localStorage.getItem("da_id") || null;
 
@@ -301,7 +306,7 @@ function refreshNet(){
 window.addEventListener("online", refreshNet);
 window.addEventListener("offline", refreshNet);
 
-/** ===== JSONP ===== */
+/** ===== JSONP (with PERF) ===== */
 function jsonp(url, params){
   return new Promise(function(resolve, reject){
     var cb = "cb_" + Math.random().toString(16).slice(2);
@@ -313,9 +318,21 @@ function jsonp(url, params){
     qs.push("callback=" + encodeURIComponent(cb));
     var src = url + "?" + qs.join("&");
 
+    // PERF
+    var t0 = Date.now();
+    var action = (params && params.action) ? String(params.action) : "";
+    if(PERF_ON && action){
+      setStatus("请求中... " + action + " ⏳", true);
+    }
+
     var script = document.createElement("script");
     var timer = setTimeout(function(){
       cleanup();
+      var dt = Date.now() - t0;
+      if(PERF_ON && action){
+        setStatus("超时 ❌ " + action + " " + dt + "ms", false);
+        perfLog_("TIMEOUT action=" + action + " dt=" + dt + "ms src=" + src);
+      }
       reject(new Error("jsonp timeout"));
     }, 12000);
 
@@ -327,13 +344,26 @@ function jsonp(url, params){
 
     window[cb] = function(data){
       cleanup();
+      var dt = Date.now() - t0;
+      var ok = data && data.ok === true;
+
+      if(PERF_ON && action){
+        setStatus((ok ? "完成 ✅ " : "失败 ❌ ") + action + " " + dt + "ms", ok);
+        perfLog_((ok ? "OK" : "BAD") + " action=" + action + " dt=" + dt + "ms");
+      }
       resolve(data);
     };
 
     script.onerror = function(){
       cleanup();
+      var dt = Date.now() - t0;
+      if(PERF_ON && action){
+        setStatus("错误 ❌ " + action + " " + dt + "ms", false);
+        perfLog_("ERROR action=" + action + " dt=" + dt + "ms src=" + src);
+      }
       reject(new Error("jsonp error"));
     };
+
     script.src = src;
     document.body.appendChild(script);
   });
