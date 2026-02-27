@@ -776,7 +776,7 @@ async function leaveWork(biz, task){
     return;
   }
 
-  if(task === "PICK" && activePick.size === 0){ alert("当前��有人在拣货作业中（无需退出）。"); return; }
+  if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
   if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
   if(task === "TALLY" && activeTally.size === 0){ alert("当前没有人在理货作业中（无需退出）。"); return; }
