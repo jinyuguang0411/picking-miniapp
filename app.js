@@ -91,7 +91,7 @@ var pendingLeaderEnd = null;
 
 /** ===== Session state (server) ===== */
 var SESSION_INFO_CACHE = { sid: null, ts: 0, data: null };
-var SESSION_INFO_TTL_MS = 5000;
+var SESSION_INFO_TTL_MS = 30000;
 
 async function sessionInfoServer_(sid){
   var session = String(sid || currentSessionId || "").trim();
@@ -380,7 +380,7 @@ async function flushQueue_(){
   }
 }
 
-setInterval(function(){ flushQueue_(); }, 1500);
+setInterval(function(){ flushQueue_(); }, 5000);
 window.addEventListener("online", function(){ flushQueue_(); });
 
 /** ===== Submit event (sync) ===== */
@@ -1188,15 +1188,10 @@ async function openScannerCommon(){
         renderActiveLists();
         refreshUI();
 
-        // 加入后立刻检查是否已关闭（防止扫到历史 session）
-        var closed = await isSessionClosedAsync_();
-        if(closed){
-          alert("已加入的趟次其实已结束（CLOSED）。\n请让组长提供新的趟次二维码，或在任一作业页重新开始。");
-          setStatus("加入失败：该趟次已结束", false);
-        }else{
-          alert("已加入趟次 ✅\n" + currentSessionId);
-          setStatus("已加入趟次 ✅ " + currentSessionId, true);
-        }
+        // ✅ 加入后先别立刻问服务器（session_info 很慢，会卡住扫码体验）
+        //    后续在做 join/leave/start 等操作时再做 guard（你本来就有 guardSessionOpenOrAlert_）
+        alert("已加入趟次 ✅\n" + currentSessionId);
+        setStatus("已加入趟次 ✅ " + currentSessionId + "（后台慢，已跳过立即校验）", true);
 
         await closeScanner();
       } finally { scanBusy = false; }
