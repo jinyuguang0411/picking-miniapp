@@ -69,6 +69,7 @@ var scannedInbounds = new Set(); // ✅ TALLY：入库单号去重集合
 
 var lastScanAt = 0;
 var scanBusy = false;
+var inFlightEventIds = new Set(); // in-memory in-flight guard: prevent concurrent double-handling of same event
 
 var currentDaId = localStorage.getItem("da_id") || null;
 
@@ -479,9 +480,8 @@ async function startTally(){
     persistState();
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
 
     refreshUI();
     renderActiveLists();
@@ -504,9 +504,8 @@ async function endTally(){
     }
 
     var evId = makeEventId({ event:"end", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
     setSessionClosed(true);
 
     setStatus("理货结束已记录 ✅", true);
@@ -557,9 +556,8 @@ async function startPicking(){
     syncLeaderPickUI();
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"PICK", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
     refreshUI();
     setStatus("拣货开始已记录 ✅", true);
   }catch(e){
@@ -641,9 +639,8 @@ async function startRelabel(){
     startRelabelTimer();
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"RELABEL", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
     refreshUI();
     setStatus("换单开始已记录 ✅", true);
   }catch(e){
@@ -662,9 +659,8 @@ async function endRelabel(){
     }
 
     var evId = makeEventId({ event:"end", biz:"B2C", task:"RELABEL", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"RELABEL", pick_session_id: currentSessionId });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
 
     setSessionClosed(true);
 
@@ -704,8 +700,8 @@ async function joinWork(biz, task){
       // PACK auto session -> write start once (best effort)
       try{
         var evIdStart = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
-        if(!hasRecent(evIdStart)) addRecent(evIdStart);
         await submitEvent({ event:"start", event_id: evIdStart, biz: biz, task:"PACK", pick_session_id: currentSessionId });
+        if(!hasRecent(evIdStart)) addRecent(evIdStart); // Strategy B: record only after successful submit
       }catch(e){}
     }else{
       setStatus("请先开始该作业再加入 / 먼저 시작", false);
@@ -780,9 +776,8 @@ async function dailyCheckin(){
     localStorage.setItem("da_id", currentDaId);
 
     var evId = makeEventId({ event:"daily_checkin", biz:"DAILY", task:"BADGE", wave_id:"", badgeRaw:da });
-    if(!hasRecent(evId)) addRecent(evId);
-
     await submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+    if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
     refreshDaUI();
 
     alert("日当工牌已生成 ✅ " + da);
@@ -816,9 +811,8 @@ async function bulkDailyCheckin(){
       var da = makeDaId();
 
       var evId = makeEventId({ event:"daily_checkin", biz:"DAILY", task:"BADGE", wave_id:"", badgeRaw:da });
-      if(!hasRecent(evId)) addRecent(evId);
-
       await submitEvent({ event:"daily_checkin", event_id: evId, biz:"DAILY", task:"BADGE", pick_session_id:"NA", da_id: da });
+      if(!hasRecent(evId)) addRecent(evId); // Strategy B: record only after successful submit
 
       var box = document.createElement("div");
       box.style.border = "1px solid #ddd";
@@ -984,9 +978,13 @@ async function openScannerCommon(){
         renderInboundCountUI();
 
         var evIdX = makeEventId({ event:"wave", biz:"B2C", task:"TALLY", wave_id: code2, badgeRaw:"" });
-        if(!hasRecent(evIdX)) addRecent(evIdX);
+        // in-flight guard: prevent concurrent double-handling of the same event
+        if(inFlightEventIds.has(evIdX)){ setStatus("处理中... ⏳", true); return; }
+        inFlightEventIds.add(evIdX);
+        var inFlightAddedX = true;
 
         await submitEvent({ event:"wave", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
+        if(!hasRecent(evIdX)) addRecent(evIdX); // Strategy B: record only after successful submit
 
         setStatus("已记录入库单 ✅ " + code2, true);
         alert("已记录入库单 ✅\n" + code2 + "\n当前累计：" + scannedInbounds.size);
@@ -998,6 +996,7 @@ async function openScannerCommon(){
         alert("提交失败，请重试。\n" + e);
         return;
       }finally{
+        if(inFlightAddedX) inFlightEventIds.delete(evIdX);
         scanBusy = false;
       }
     }
@@ -1022,13 +1021,20 @@ async function openScannerCommon(){
           await closeScanner();
           return;
         }
-        addRecent(evId);
+        // in-flight guard: prevent concurrent double-handling of the same event
+        if(inFlightEventIds.has(evId)){ setStatus("处理中... ⏳", true); return; }
+        inFlightEventIds.add(evId);
+        var inFlightAddedW = true;
 
         await submitEvent({ event:"wave", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId, wave_id: code });
+        addRecent(evId); // Strategy B: record only after successful submit
         alert("已记录波次 ✅ " + code);
         setStatus("已记录波次 ✅ " + code, true);
         await closeScanner();
-      } finally { scanBusy = false; }
+      } finally {
+        if(inFlightAddedW) inFlightEventIds.delete(evId);
+        scanBusy = false;
+      }
       return;
     }
 
@@ -1047,14 +1053,21 @@ async function openScannerCommon(){
           await closeScanner();
           return;
         }
-        addRecent(evId2);
+        // in-flight guard: prevent concurrent double-handling of the same event
+        if(inFlightEventIds.has(evId2)){ setDaStatus("处理中... ⏳", true); return; }
+        inFlightEventIds.add(evId2);
+        var inFlightAddedB = true;
 
         await submitEvent({ event:"bind_daily", event_id: evId2, biz:"DAILY", task:"BADGE", pick_session_id: currentSessionId, da_id: p.raw });
+        addRecent(evId2); // Strategy B: record only after successful submit
         currentDaId = p.raw; localStorage.setItem("da_id", currentDaId); refreshDaUI();
         alert("已绑定工牌 ✅ " + p.raw);
         setDaStatus("绑定成功 ✅", true);
         await closeScanner();
-      } finally { scanBusy = false; }
+      } finally {
+        if(inFlightAddedB) inFlightEventIds.delete(evId2);
+        scanBusy = false;
+      }
       return;
     }
 
@@ -1104,9 +1117,13 @@ async function openScannerCommon(){
           await closeScanner();
           return;
         }
-        addRecent(evId);
+        // in-flight guard: prevent concurrent double-handling of the same event
+        if(inFlightEventIds.has(evId)){ setStatus("处理中... ⏳", true); return; }
+        inFlightEventIds.add(evId);
+        var inFlightAddedL = true;
 
         // join: acquire lock first
+        var lockAcquired = false;
         if(laborAction === "join"){
           var r1 = await lockAcquireRemote(p2.raw, laborTask, currentSessionId);
           if(!r1 || r1.ok !== true){
@@ -1120,6 +1137,7 @@ async function openScannerCommon(){
             alert("该工牌已在其它设备作业中：\n任务: "+(lk.task||"")+"\n设备: "+(lk.device_id||"")+"\n请先在原设备退出。");
             return;
           }
+          lockAcquired = true; // lock successfully acquired
         }
 
         // ✅ write sheet first
@@ -1131,6 +1149,7 @@ async function openScannerCommon(){
           pick_session_id: currentSessionId,
           da_id: p2.raw
         });
+        addRecent(evId); // Strategy B: record only after successful submit
 
         // ✅ then update local state
         applyActive(laborTask, laborAction, p2.raw);
@@ -1147,10 +1166,15 @@ async function openScannerCommon(){
         await closeScanner();
         return;
       } catch(e){
+        // if join lock was acquired but submit failed, release lock best-effort so future joins aren't stuck
+        if(laborAction === "join" && lockAcquired){
+          try{ await lockReleaseRemote(p2.raw, laborTask); }catch(e2){ console.error("Lock release failed after submit error:", e2); }
+        }
         setStatus("提交失败 ❌ " + e, false);
         alert("提交失败，请重试。\n" + e);
         return;
       } finally {
+        if(inFlightAddedL) inFlightEventIds.delete(evId);
         scanBusy = false;
       }
     }
@@ -1191,9 +1215,14 @@ async function openScannerCommon(){
         var task = pendingLeaderEnd ? pendingLeaderEnd.task : "PICK";
 
         var evIdEnd = makeEventId({ event:"end", biz: biz, task: task, wave_id:"", badgeRaw: p4.raw });
-        if(!hasRecent(evIdEnd)) addRecent(evIdEnd);
+        if(hasRecent(evIdEnd)){ setStatus("已记录（无需重复）", false); await closeScanner(); return; }
+        // in-flight guard: prevent concurrent double-handling of the same event
+        if(inFlightEventIds.has(evIdEnd)){ setStatus("处理中... ⏳", true); return; }
+        inFlightEventIds.add(evIdEnd);
+        var inFlightAddedE = true;
 
         await submitEvent({ event:"end", event_id: evIdEnd, biz: biz, task: task, pick_session_id: currentSessionId });
+        if(!hasRecent(evIdEnd)) addRecent(evIdEnd); // Strategy B: record only after successful submit
 
         setSessionClosed(true);
 
@@ -1215,7 +1244,10 @@ async function openScannerCommon(){
 
         refreshUI(); syncLeaderPickUI();
         await closeScanner();
-      } finally { scanBusy = false; }
+      } finally {
+        if(inFlightAddedE) inFlightEventIds.delete(evIdEnd);
+        scanBusy = false;
+      }
       return;
     }
   };
