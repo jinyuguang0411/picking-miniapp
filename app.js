@@ -1083,82 +1083,81 @@ async function openScannerCommon(){
       return;
     }
 
-    /** labor */
-    if(scanMode === "labor"){
-      if(isSessionClosed()){
-        setStatus("该趟次已结束，禁止 join/leave（请重新开始）", false);
-        alert("该趟次已结束，禁止 join/leave。\n请点击【开始】新建趟次后再操作。");
-        await closeScanner();
-        return;
-      }
+/** labor */
+if(scanMode === "labor"){
+  if(isSessionClosed()){
+    setStatus("该趟次已结束，禁止 join/leave（请重新开始）", false);
+    alert("该趟次已结束，禁止 join/leave。\n请点击【开始】新建趟次后再操作。");
+    await closeScanner();
+    return;
+  }
 
-      if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
-      var p2 = parseBadge(code);
+  if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
+  var p2 = parseBadge(code);
 
-      // leave must be active
-      if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
-        alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
-        setStatus("不在岗，无法退出 ❌", false);
-        await closeScanner();
-        return;
-      }
+  // leave must be active
+  if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
+    alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
+    setStatus("不在岗，无法退出 ❌", false);
+    await closeScanner();
+    return;
+  }
 
-      // join dedupe by active
-      if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
-        alert("已在作业中 ✅ " + p2.raw);
-        setStatus("已在作业中 ✅", true);
-        await closeScanner();
-        return;
-      }
+  // join dedupe by active
+  if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
+    alert("已在作业中 ✅ " + p2.raw);
+    setStatus("已在作业中 ✅", true);
+    await closeScanner();
+    return;
+  }
 
-      scanBusy = true;
-      await pauseScanner();
-      setStatus("处理中... 请稍等 ⏳", true);
+  scanBusy = true;
+  await pauseScanner();
+  setStatus("处理中... 请稍等 ⏳", true);
 
-      try{
-        var evId = makeEventId({
-          event: laborAction,
-          biz: laborBiz,
-          task: laborTask,
-          wave_id: "",
-          badgeRaw: p2.raw
-        });
+  try{
+    var evId = makeEventId({
+      event: laborAction,
+      biz: laborBiz,
+      task: laborTask,
+      wave_id: "",
+      badgeRaw: p2.raw
+    });
 
-        if(hasRecent(evId)){
-          setStatus("重复扫描已忽略 ⏭️", false);
-          await closeScanner();
-          return;
-        }
-
-        // ✅ write sheet first
-        await submitEvent({
-          event: laborAction,
-          event_id: evId,
-          biz: laborBiz,
-          task: laborTask,
-          pick_session_id: currentSessionId,
-          da_id: p2.raw
-        });
-        addRecent(evId);
-
-        // ✅ then update local state
-        applyActive(laborTask, laborAction, p2.raw);
-        renderActiveLists();
-        persistState();
-
-
-        alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
-        setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
-        await closeScanner();
-        return;
-      } catch(e){
-        setStatus("提交失败 ❌ " + e, false);
-        alert("提交失败，请重试。\n" + e);
-        return;
-      } finally {
-        scanBusy = false;
-      }
+    if(hasRecent(evId)){
+      setStatus("重复扫描已忽略 ⏭️", false);
+      await closeScanner();
+      return;
     }
+
+    // ✅ only one source of truth: backend event_submit handles lock consistency for join/leave
+    await submitEvent({
+      event: laborAction,
+      event_id: evId,
+      biz: laborBiz,
+      task: laborTask,
+      pick_session_id: currentSessionId,
+      da_id: p2.raw
+    });
+    addRecent(evId);
+
+    // ✅ then update local state
+    applyActive(laborTask, laborAction, p2.raw);
+    renderActiveLists();
+    persistState();
+
+    alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
+    setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
+    await closeScanner();
+    return;
+  } catch(e){
+    setStatus("提交失败 ❌ " + e, false);
+    alert("提交失败，请重试。\n" + e);
+    return;
+  } finally {
+    scanBusy = false;
+  }
+}
 
     /** leader login pick */
     if(scanMode === "leaderLoginPick"){
