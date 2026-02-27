@@ -6,7 +6,7 @@
 // ✅ 防卡重复：scanBusy + 本地去重(event_id) + leave 必须在岗 + 扫码成功先 pause 摄像头
 // ✅ 防脏数据：leave 先写表再 release lock；session closed 禁止 join/leave
 // ✅ PACK 自动建 session 时补 start 事件
-// ✅ 总控台 global_menu + 全局在岗 active_now（从 LOCK_URL?action=active_now 拉取）
+// ✅ 总控台 active_now（从 LOCK_URL?action=active_now 拉取）
 // ✅ 性能：start/wave/end 等非互斥事件走队列秒响应；join/leave 同步确认锁
 
 /** ===== Form (legacy, kept for compatibility) ===== */
@@ -53,6 +53,9 @@ function renderPages(){
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="active_now"){ refreshActiveNow(); }
+
+  // B2C menu: refresh session QR box if any
+  if(cur==="b2c_menu"){ refreshUI(); }
 }
 window.addEventListener("hashchange", renderPages);
 
@@ -91,13 +94,67 @@ var leaderPickBadge = localStorage.getItem("leader_pick_badge") || null;
 var leaderPickOk = false;
 var pendingLeaderEnd = null;
 
+/** ===== Session join via QR ===== */
+function sessionQrPayload_(sessionId){
+  return "CKSESSION|" + String(sessionId || "").trim();
+}
+function parseSessionQr_(text){
+  var t = String(text || "").trim();
+  if(!t) return null;
+  if(t.indexOf("CKSESSION|") === 0){
+    var sid = t.split("|").slice(1).join("|").trim();
+    return sid || null;
+  }
+  // fallback: allow raw PS-... (optional)
+  if(/^PS-\d{8}-\d{6}\d{0,}-/.test(t) || t.indexOf("PS-") === 0){
+    return t;
+  }
+  return null;
+}
+
+async function joinExistingSessionByScan(){
+  scanMode = "session_join";
+  document.getElementById("scanTitle").textContent = "扫码加入趟次 / 세션 QR 스캔";
+  await openScannerCommon();
+}
+
+function showSessionQr(){
+  var box = document.getElementById("b2cSessionQrBox");
+  if(!box) { alert("缺少 b2cSessionQrBox"); return; }
+
+  box.innerHTML = "";
+  if(!currentSessionId){
+    box.innerHTML = '<div class="muted">本机没有 session（请先在任一作业页点开始，或先扫码加入）。</div>';
+    return;
+  }
+
+  var payload = sessionQrPayload_(currentSessionId);
+
+  var wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.alignItems = "center";
+  wrap.style.gap = "8px";
+
+  var label = document.createElement("div");
+  label.className = "pill";
+  label.textContent = "session: " + currentSessionId;
+  wrap.appendChild(label);
+
+  var qrEl = document.createElement("div");
+  wrap.appendChild(qrEl);
+
+  box.appendChild(wrap);
+  new QRCode(qrEl, { text: payload, width: 180, height: 180 });
+}
+
 /** ===== Persist / Restore ===== */
 function keyWaves(){ return "waves_" + (currentSessionId || "NA"); }
 function keyActivePick(){ return "activePick_" + (currentSessionId || "NA"); }
 function keyActiveRelabel(){ return "activeRelabel_" + (currentSessionId || "NA"); }
 function keyActivePack(){ return "activePack_" + (currentSessionId || "NA"); }
 function keyActiveTally(){ return "activeTally_" + (currentSessionId || "NA"); }
-function keyActiveReturn(){ return "activeReturn_" + (currentSessionId || "NA"); } // ✅ NEW
+function keyActiveReturn(){ return "activeReturn_" + (currentSessionId || "NA"); }
 function keyInbounds(){ return "inbounds_" + (currentSessionId || "NA"); }
 
 /** ===== session closed ===== */
@@ -131,8 +188,6 @@ function addRecent(eventId){
   saveRecent(arr);
 }
 function makeEventId(params){
-  // params: {event, biz, task, wave_id, badgeRaw}
-  // ✅ 稳定键（不带时间），用于“连扫同一张码”的本地去重
   return [
     makeDeviceId(),
     (currentSessionId||"NA"),
@@ -150,12 +205,8 @@ function persistState(){
   localStorage.setItem(keyActivePick(), JSON.stringify(Array.from(activePick)));
   localStorage.setItem(keyActiveRelabel(), JSON.stringify(Array.from(activeRelabel)));
   localStorage.setItem(keyActivePack(), JSON.stringify(Array.from(activePack)));
-
-  // ✅ TALLY
   localStorage.setItem(keyActiveTally(), JSON.stringify(Array.from(activeTally)));
   localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
-
-  // ✅ NEW: RETURN
   localStorage.setItem(keyActiveReturn(), JSON.stringify(Array.from(activeReturn)));
 }
 
@@ -166,12 +217,8 @@ function restoreState(){
   try{ activePick = new Set(JSON.parse(localStorage.getItem(keyActivePick()) || "[]")); }catch(e){ activePick = new Set(); }
   try{ activeRelabel = new Set(JSON.parse(localStorage.getItem(keyActiveRelabel()) || "[]")); }catch(e){ activeRelabel = new Set(); }
   try{ activePack = new Set(JSON.parse(localStorage.getItem(keyActivePack()) || "[]")); }catch(e){ activePack = new Set(); }
-
-  // ✅ TALLY
   try{ activeTally = new Set(JSON.parse(localStorage.getItem(keyActiveTally()) || "[]")); }catch(e){ activeTally = new Set(); }
   try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
-
-  // ✅ NEW: RETURN
   try{ activeReturn = new Set(JSON.parse(localStorage.getItem(keyActiveReturn()) || "[]")); }catch(e){ activeReturn = new Set(); }
 }
 
@@ -269,7 +316,7 @@ function loadQueue_(){
   try{ return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); }catch(e){ return []; }
 }
 function saveQueue_(q){
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-200))); // keep last 200
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-200)));
 }
 function enqueueEvent_(payload){
   var q = loadQueue_();
@@ -277,7 +324,6 @@ function enqueueEvent_(payload){
   saveQueue_(q);
 }
 
-// flush one by one to avoid overloading GAS
 async function flushQueue_(){
   if(FLUSHING) return;
   if(!navigator.onLine) return;
@@ -292,7 +338,7 @@ async function flushQueue_(){
       var item = q[i];
       try{
         item.tries = (item.tries||0) + 1;
-        await submitEventSync_(item.payload, /*silent*/ true);
+        await submitEventSync_(item.payload, true);
       }catch(e){
         if(item.tries < 8) keep.push(item);
       }
@@ -337,17 +383,12 @@ async function submitEventSync_(o, silent){
       "请先在原设备退出（leave）后再加入。";
     throw new Error(msg);
   }
-
   return res;
 }
 
-/** ===== Submit event (FAST UX) =====
- * - For NON-locking events: enqueue + return immediately
- * - For join/leave: callers must use submitEventSync_
- */
 async function submitEvent(o){
   enqueueEvent_(o);
-  flushQueue_(); // best-effort
+  flushQueue_();
   return { ok:true, queued:true };
 }
 
@@ -361,7 +402,7 @@ function parseBadge(code){
 }
 function isDaId(id){ return /^DA-\d{8}-\d+$/.test(id); }
 function isEmpId(id){ return /^EMP-[A-Za-z0-9_-]+$/.test(id); }
-function isPermanentDaId(id){ return /^DAF-\d+$/.test(id); } // 长期日当：DAF-001
+function isPermanentDaId(id){ return /^DAF-\d+$/.test(id); }
 function isOperatorBadge(raw){
   var p = parseBadge(raw);
   return isDaId(p.id) || isEmpId(p.id) || isPermanentDaId(p.id);
@@ -373,10 +414,9 @@ function isAlreadyActive(task, badge){
   if(task==="RELABEL") return activeRelabel.has(badge);
   if(task==="PACK") return activePack.has(badge);
   if(task==="TALLY") return activeTally.has(badge);
-  if(task==="退件入库") return activeReturn.has(badge); // ✅ NEW
+  if(task==="退件入库") return activeReturn.has(badge);
   return false;
 }
-
 function applyActive(task, action, badge){
   if(task==="PICK"){
     if(action==="join") activePick.add(badge);
@@ -410,7 +450,6 @@ function renderSetToHtml(setObj){
   if(arr.length === 0) return '<span class="muted">无 / 없음</span>';
   return arr.map(function(x){ return '<span class="tag">' + badgeDisplay(x) + '</span>'; }).join("");
 }
-
 function renderActiveLists(){
   var pc = document.getElementById("pickCount");
   var pl = document.getElementById("pickActiveList");
@@ -422,19 +461,16 @@ function renderActiveLists(){
   if(rc) rc.textContent = String(activeRelabel.size);
   if(rl) rl.innerHTML = renderSetToHtml(activeRelabel);
 
-  // PACK：兼容 packCount 和 packCountPeople
   var kc = document.getElementById("packCount") || document.getElementById("packCountPeople");
   var kl = document.getElementById("packActiveList");
   if(kc) kc.textContent = String(activePack.size);
   if(kl) kl.innerHTML = renderSetToHtml(activePack);
 
-  // ✅ TALLY
   var tc = document.getElementById("tallyCount");
   var tl = document.getElementById("tallyActiveList");
   if(tc) tc.textContent = String(activeTally.size);
   if(tl) tl.innerHTML = renderSetToHtml(activeTally);
 
-  // ✅ NEW: RETURN
   var xc = document.getElementById("returnCount");
   var xl = document.getElementById("returnActiveList");
   if(xc) xc.textContent = String(activeReturn.size);
@@ -449,7 +485,6 @@ function renderInboundCountUI(){
     if(scannedInbounds.size === 0){
       l.innerHTML = '<span class="muted">无 / 없음</span>';
     }else{
-      // 只展示最近 30 个，避免太长卡 UI
       var arr = Array.from(scannedInbounds);
       var show = arr.slice(Math.max(0, arr.length - 30));
       l.innerHTML = show.map(function(x){ return '<span class="tag">'+String(x)+'</span>'; }).join(" ");
@@ -471,7 +506,6 @@ function fmtDur(ms){
   if(h>0) return h + "h" + String(m).padStart(2,"0") + "m";
   return m + "m";
 }
-
 async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
@@ -529,7 +563,7 @@ async function refreshActiveNow(){
   }
 }
 
-/** ===== NEW: RETURN (B2C) ===== */
+/** ===== NEW: RETURN ===== */
 async function startReturn(){
   try{
     if(currentSessionId){
@@ -540,10 +574,8 @@ async function startReturn(){
 
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
-
     setSessionClosed(false);
 
-    // reset state
     activeReturn = new Set();
     persistState();
 
@@ -613,14 +645,12 @@ async function startTally(){
 
     setSessionClosed(false);
 
-    // reset state
     activeTally = new Set();
     scannedInbounds = new Set();
     persistState();
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"TALLY", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      // enqueue (fast)
       submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId });
       addRecent(evId);
     }
@@ -654,7 +684,6 @@ async function endTally(){
     setSessionClosed(true);
     setStatus("理货结束已记录（待上传）✅", true);
 
-    // cleanup keys
     localStorage.removeItem(keyWaves());
     localStorage.removeItem(keyActivePick());
     localStorage.removeItem(keyActiveRelabel());
@@ -702,7 +731,6 @@ async function startPicking(){
 
     var evId = makeEventId({ event:"start", biz:"B2C", task:"PICK", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
-      // enqueue (fast)
       submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"PICK", pick_session_id: currentSessionId });
       addRecent(evId);
     }
@@ -842,7 +870,6 @@ async function endRelabel(){
 
 /** ===== Labor (join/leave) ===== */
 async function joinWork(biz, task){
-  // only PACK allows auto session
   if(!currentSessionId){
     if(task === "PACK"){
       currentSessionId = makePickSessionId();
@@ -852,7 +879,6 @@ async function joinWork(biz, task){
       persistState();
       refreshUI();
 
-      // PACK auto session -> write start once (enqueue, best-effort)
       try{
         var evIdStart = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
         if(!hasRecent(evIdStart)){
@@ -861,8 +887,8 @@ async function joinWork(biz, task){
         }
       }catch(e){}
     }else{
-      setStatus("请先开始该作业再加入 / 먼저 시작", false);
-      alert("请先点【开始】再加入作业。");
+      setStatus("请先加入趟次（扫码）或先点开始 / 세션 참여 필요", false);
+      alert("请先在 B2C 菜单点【加入已有趟次（扫码）】\n或在本作业页点【开始】创建新趟次。");
       return;
     }
   }
@@ -881,8 +907,8 @@ async function joinWork(biz, task){
 
 async function leaveWork(biz, task){
   if(!currentSessionId){
-    setStatus("请先开始该作业再退出 / 먼저 시작", false);
-    alert("当前没有进行中的作业。\n请先点【开始】再退出。");
+    setStatus("请先加入趟次（扫码）或先点开始", false);
+    alert("当前没有进行中的趟次。\n请先加入趟次或开始作业。");
     return;
   }
 
@@ -892,12 +918,11 @@ async function leaveWork(biz, task){
     return;
   }
 
-  // no one active -> disallow leave spam
   if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
   if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
   if(task === "TALLY" && activeTally.size === 0){ alert("当前没有人在理货作业中（无需退出）。"); return; }
-  if(task === "退件入库" && activeReturn.size === 0){ alert("当前没有人在退件入库作业中（无需退出）。"); return; } // ✅ NEW
+  if(task === "退件入库" && activeReturn.size === 0){ alert("当前没有人在退件入库作业中（无需退出）。"); return; }
 
   laborAction = "leave"; laborBiz = biz; laborTask = task;
   scanMode = "labor";
@@ -905,7 +930,9 @@ async function leaveWork(biz, task){
   await openScannerCommon();
 }
 
-/** ===== Daily badge (daily DA-YYYYMMDD-xx) ===== */
+/** ===== Daily badge / Permanent / Employee / Bind / Leader / Scanner ===== */
+/** （以下从你原文件保持一致；核心改动已经在上面加入 session_join 分支） */
+
 function setDaStatus(msg, ok){
   if(ok===undefined) ok=true;
   var el = document.getElementById("daStatus");
@@ -995,7 +1022,6 @@ async function bulkDailyCheckin(){
   }
 }
 
-/** ===== Long-term DA badges (DAF-xxx|name) ===== */
 function padNum(n, width){
   var s = String(n);
   return s.length>=width ? s : ("0".repeat(width-s.length)+s);
@@ -1034,7 +1060,6 @@ function generatePermanentDaBadges(){
   alert("已生成长期日当工牌 ✅ 共 " + names.length + " 个\n建议截图/打印发放（以后每天都用这一张）。");
 }
 
-/** ===== Bind badge to session ===== */
 async function bindBadgeToSession(){
   try{
     if(!currentSessionId){ setDaStatus("请先开始某个作业再绑定 / 먼저 시작", false); return; }
@@ -1047,7 +1072,6 @@ async function bindBadgeToSession(){
   }
 }
 
-/** ===== Employee badges ===== */
 function generateEmployeeBadges(){
   var ta = document.getElementById("empNames");
   if(!ta){ alert("找不到 empNames"); return; }
@@ -1078,7 +1102,6 @@ function generateEmployeeBadges(){
   alert("已生成员工工牌 ✅ 共 "+names.length+" 个\n建议截图/打印此页面发放。");
 }
 
-/** ===== Leader UI ===== */
 function syncLeaderPickUI(){
   var info = document.getElementById("leaderInfoPick");
   var btnEnd = document.getElementById("btnEndPick");
@@ -1093,14 +1116,9 @@ function syncLeaderPickUI(){
   }
 }
 
-/** ===== Scanner overlay ===== */
 function showOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.add("show"); }
 function hideOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.remove("show"); }
-
-/** pause scanner to prevent duplicate callbacks */
-async function pauseScanner(){
-  try{ if(scanner) await scanner.pause(true); }catch(e){}
-}
+async function pauseScanner(){ try{ if(scanner) await scanner.pause(true); }catch(e){} }
 
 async function openScannerCommon(){
   showOverlay();
@@ -1116,6 +1134,37 @@ async function openScannerCommon(){
     var now = Date.now();
     if(now - lastScanAt < 900) return;
     lastScanAt = now;
+
+    /** ✅ session_join */
+    if(scanMode === "session_join"){
+      var sid = parseSessionQr_(code);
+      if(!sid){
+        setStatus("不是趟次二维码（CKSESSION|...）", false);
+        return;
+      }
+
+      scanBusy = true;
+      await pauseScanner();
+      try{
+        currentSessionId = sid;
+        localStorage.setItem("pick_session_id", currentSessionId);
+
+        // joining an existing session: ensure not marked closed locally
+        setSessionClosed(false);
+
+        // restore state if existed, else start with empty
+        restoreState();
+        renderActiveLists();
+        refreshUI();
+
+        alert("已加入趟次 ✅\n" + currentSessionId);
+        setStatus("已加入趟次 ✅ " + currentSessionId, true);
+        await closeScanner();
+      } finally {
+        scanBusy = false;
+      }
+      return;
+    }
 
     /** inbound_count (TALLY) */
     if(scanMode === "inbound_count"){
@@ -1191,6 +1240,10 @@ async function openScannerCommon(){
       return;
     }
 
+    /** badgeBind / labor / leader...（保持你原逻辑） */
+    // 下面部分与你之前一致（为节省篇幅，这里省略重复说明；实际文件里仍完整保留）
+    // ——开始复制你原有逻辑（badgeBind/labor/leaderLoginPick/leaderEndPick）——
+
     /** badgeBind */
     if(scanMode === "badgeBind"){
       if(isSessionClosed()){ setDaStatus("该趟次已结束，禁止绑定", false); await closeScanner(); return; }
@@ -1230,7 +1283,6 @@ async function openScannerCommon(){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p2 = parseBadge(code);
 
-      // leave must be active
       if(laborAction === "leave" && !isAlreadyActive(laborTask, p2.raw)){
         alert("该工牌不在当前作业名单中，无法退出。\n请确认是否扫错工牌。");
         setStatus("不在岗，无法退出 ❌", false);
@@ -1238,7 +1290,6 @@ async function openScannerCommon(){
         return;
       }
 
-      // join dedupe by active
       if(laborAction === "join" && isAlreadyActive(laborTask, p2.raw)){
         alert("已在作业中 ✅ " + p2.raw);
         setStatus("已在作业中 ✅", true);
@@ -1276,7 +1327,6 @@ async function openScannerCommon(){
 
         addRecent(evId);
 
-        // ✅ then update local state
         applyActive(laborTask, laborAction, p2.raw);
         renderActiveLists();
         persistState();
@@ -1377,7 +1427,6 @@ async function closeScanner(){
   hideOverlay();
 }
 
-/** ===== helper ===== */
 function comingSoon(msg){
   alert((msg||"准备中") + "\n\n我们会逐步上线。");
 }
