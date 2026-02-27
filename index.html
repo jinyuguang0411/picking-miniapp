@@ -163,7 +163,7 @@
   <div id="page-b2c_menu" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-      <div class="grow pill">B2C 菜单 / 메뉴</div>
+      <div class="grow pill">B2C 菜单 / ��뉴</div>
     </div>
 
     <div class="card">
@@ -175,15 +175,15 @@
         <div id="b2cSessionQrBox" style="margin-top:10px;"></div>
       </div>
 
-      <!-- ✅ NEW: TALLY 放在拣货上面 -->
+      <!-- ✅ 你确认的顺序：入库理货 -> 拣货 -> 验货贴单打包 -> 退件入库 -> 质检 -> 废弃处理 -> 换单 -->
       <button class="primary" onclick="go('b2c_tally')">入库理货（已上线） <small>입고검수</small></button>
-
-      <!-- ✅ NEW: RETURN -->
-      <button class="primary" onclick="go('b2c_return')">退件入库（开始/结束扫工牌） <small>반품 입고</small></button>
-
-      <button class="primary" onclick="go('b2c_relabel')">扫码换单贴单（已上线） <small>라벨</small></button>
       <button class="primary" onclick="go('b2c_pick')">拣货（已上线） <small>피킹</small></button>
-      <button class="primary" onclick="go('b2c_pack')">验货打包贴单（开始/结束扫工牌） <small>검수·포장·라벨</small></button>
+      <button class="primary" onclick="go('b2c_pack')">验货贴单打包（开始/结束扫工牌） <small>검수·포장·라벨</small></button>
+      <button class="primary" onclick="go('b2c_return')">退件入库（开始/结束扫工牌） <small>반품 입고</small></button>
+      <button class="primary" onclick="go('b2c_qc')">质检（开始/结束扫工牌） <small>검품</small></button>
+      <button class="primary" onclick="go('b2c_disposal')">废弃处理（开始/结束扫工牌） <small>폐기</small></button>
+      <button class="primary" onclick="go('b2c_relabel')">换单（已上线） <small>라벨</small></button>
+
       <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
     </div>
   </div>
@@ -219,7 +219,7 @@
     </div>
   </div>
 
-  <!-- ✅ B2C RETURN -->
+  <!-- ✅ B2C RETURN（改成 PACK 方式：开始/结束都扫工牌） -->
   <div id="page-b2c_return" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
@@ -227,22 +227,56 @@
     </div>
 
     <div class="card">
-      <div class="pill">✅ 开始=生成趟次；加入/退出=扫工牌；结束=关趟（必须全部退出）</div>
+      <div class="pill">✅ 记录方式：开始=扫工牌；结束=扫工牌（同一工牌不能同时在其它任务中）</div>
 
-      <button class="primary" onclick="startReturn()">开始退件入库 <small>시작</small></button>
-
-      <button class="primary" onclick="joinWork('B2C','退件入库')">加入作业（扫工牌） <small>참여</small></button>
-      <button class="primary" onclick="leaveWork('B2C','退件入库')">退出作业（扫工牌） <small>퇴장</small></button>
+      <button class="primary" onclick="joinWork('B2C','退件入库')">开始作业（扫工牌） <small>시작(명찰 스캔)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','退件入库')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
 
       <div class="listBox">
         <div><b>当前在岗 / 작업중</b>：<span id="returnCount">0</span></div>
         <div id="returnActiveList" class="muted">无 / 없음</div>
       </div>
 
-      <button class="primary" onclick="endReturn()">结束退件入库 <small>종료</small></button>
-
       <div class="pill" style="margin-top:10px;">
         📌 人效/时效：用退件入库 join~leave 的时段，在本地模型匹配 WMS 导出的退件订单/认领表的签收时间计算产能。
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ NEW: B2C 质检（PACK 方式） -->
+  <div id="page-b2c_qc" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 质检 / 검품</div>
+    </div>
+
+    <div class="card">
+      <div class="pill">✅ 记录方式：开始=扫工牌；结束=扫工牌（同一工牌不能同时在其它任务中）</div>
+
+      <button class="primary" onclick="joinWork('B2C','质检')">开始作业（扫工牌） <small>시작(명찰 스캔)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','质检')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
+
+      <div class="listBox">
+        <div class="muted">如需显示当前在岗名单，可后续在 app.js 增加 activeQC 渲染。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ NEW: B2C 废弃处理（PACK 方式） -->
+  <div id="page-b2c_disposal" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">B2C 废弃处理 / 폐기</div>
+    </div>
+
+    <div class="card">
+      <div class="pill">✅ 记录方式：开始=扫工牌；结束=扫工牌（同一工牌不能同时在其它任务中）</div>
+
+      <button class="primary" onclick="joinWork('B2C','废弃处理')">开始作业（扫工牌） <small>시작(명찰 스캔)</small></button>
+      <button class="primary" onclick="leaveWork('B2C','废弃处理')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
+
+      <div class="listBox">
+        <div class="muted">如需显示当前在岗名单，可后续在 app.js 增加 activeDisposal 渲染。</div>
       </div>
     </div>
   </div>
@@ -274,11 +308,11 @@
     </div>
   </div>
 
-  <!-- B2C RELABEL -->
+  <!-- B2C RELABEL（只改名字显示为“换单”） -->
   <div id="page-b2c_relabel" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-      <div class="grow pill">B2C 换单贴单 / 라벨</div>
+      <div class="grow pill">B2C 换单 / 라벨</div>
     </div>
 
     <div class="card">
@@ -299,11 +333,11 @@
     </div>
   </div>
 
-  <!-- B2C PACK -->
+  <!-- B2C PACK（只改菜单/标题的中文为“验货贴单打包”，实际 task 仍是 PACK） -->
   <div id="page-b2c_pack" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-      <div class="grow pill">B2C 验货打包贴单 / 검수·포장·라벨</div>
+      <div class="grow pill">B2C 验货贴单打包 / 검수·포장·라벨</div>
     </div>
 
     <div class="card">
