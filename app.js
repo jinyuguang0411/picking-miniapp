@@ -4,9 +4,9 @@
 // ✅ Fast UX: start/wave/end are queued (async)
 // ✅ Global session close: backend session_close is session-only (global), so end happens ONCE
 // ✅ One end record: write Events row with task="SESSION" only once
-// ✅ NEW: QC / Disposal / Return use PACK-like "scan start(scan join) / scan end(leave)" with auto session create
+// ✅ NEW: QC / Disposal / Return use PACK-like "scan start(join) / scan end(leave)" with auto session create
+// ✅ NEW: Auto end session after the LAST leave for PACK-like tasks (PACK/退件入库/质检/废弃处理)
 
-/** ===== Lock Service (Apps Script WebApp, JSONP) ===== */
 var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdiSd6Ho4BqpRs1vKX41NYxa3gNYJV6FULx-4Wmsf0uNw/exec";
 
 /** ===== Router ===== */
@@ -435,6 +435,42 @@ async function endSessionGlobal_(){
   cleanupLocalSession_();
 }
 
+function taskAutoSession_(task){
+  return task === "PACK" || task === "退件入库" || task === "质检" || task === "废弃处理";
+}
+
+async function tryAutoEndSessionAfterLeave_(){
+  // 只对 PACK 类任务自动 end（你确认：理货/拣货/换单 仍保留原流程）
+  if(!taskAutoSession_(laborTask)) return;
+  if(!currentSessionId) return;
+
+  try{
+    var r = await sessionCloseServer_();
+
+    // 还有人在岗：不 end
+    if(r && r.blocked) return;
+
+    // 已被别人 end：清本机
+    if(r && r.already_closed){
+      cleanupLocalSession_();
+      return;
+    }
+
+    // 成功 end：写一次 SESSION end + 清本机
+    if(r && r.closed){
+      var evIdEnd = makeEventId({ event:"end", biz:"B2C", task:"SESSION", wave_id:"", badgeRaw:"" });
+      if(!hasRecent(evIdEnd)){
+        submitEvent({ event:"end", event_id: evIdEnd, biz:"B2C", task:"SESSION", pick_session_id: currentSessionId });
+        addRecent(evIdEnd);
+      }
+      cleanupLocalSession_();
+      return;
+    }
+  }catch(e){
+    // ignore: leave 已成功，自动 end 失败不影响作业
+  }
+}
+
 /** ===== Badge helpers ===== */
 function parseBadge(code){
   var raw = (code || "").trim();
@@ -544,6 +580,7 @@ async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
     var res = await jsonp(LOCK_URL, { action:"active_now" });
+
     if(!res || res.ok !== true){
       setStatus("在岗拉取失败 ❌ " + (res && res.error ? res.error : ""), false);
       alert("在岗拉取失败：" + (res && res.error ? res.error : "unknown"));
@@ -592,7 +629,7 @@ async function refreshActiveNow(){
     setStatus("在岗已更新 ✅", true);
   }catch(e){
     setStatus("在岗拉取异常 ❌ " + e, false);
-    alert("在岗拉取异常：" + e);
+    alert("在��拉取异常：" + e);
   }
 }
 
@@ -733,11 +770,6 @@ async function openScannerInboundCount(){
 }
 
 /** ===== Labor (join/leave) ===== */
-function taskAutoSession_(task){
-  // tasks that behave like PACK: scan-start / scan-end; auto create session if missing
-  return task === "PACK" || task === "退件入库" || task === "质检" || task === "废弃处理";
-}
-
 async function joinWork(biz, task){
   if(!currentSessionId){
     if(taskAutoSession_(task)){
@@ -746,7 +778,6 @@ async function joinWork(biz, task){
       persistState();
       refreshUI();
 
-      // record a start event for this task (queued)
       try{
         var evIdStart = makeEventId({ event:"start", biz:biz, task: task, wave_id:"", badgeRaw:"" });
         if(!hasRecent(evIdStart)){
@@ -873,7 +904,7 @@ async function bulkDailyCheckin(){
       localStorage.setItem("da_id", currentDaId);
     }
     refreshDaUI();
-    setDaStatus("批量生成完成（��上传）✅ 共 "+n+" 个", true);
+    setDaStatus("批量生成完成（待上传）✅ 共 "+n+" 个", true);
   }catch(e){
     setDaStatus("批量生成失败 ❌ " + e, false);
   }
@@ -1131,6 +1162,11 @@ async function openScannerCommon(){
         renderActiveLists();
         persistState();
 
+        // ✅ NEW: auto end session after the LAST leave for PACK-like tasks
+        if(laborAction === "leave"){
+          await tryAutoEndSessionAfterLeave_();
+        }
+
         alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
         setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
         await closeScanner();
@@ -1193,7 +1229,6 @@ async function closeScanner(){
   hideOverlay();
 }
 
-/** ===== Missing UI helpers fallback ===== */
 function comingSoon(msg){
   alert((msg||"准备中") + "\n\n我们会逐步上线。");
 }
