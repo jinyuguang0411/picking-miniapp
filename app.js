@@ -4,12 +4,17 @@
 // ✅ Fast UX: start/wave/end are queued (async)
 // ✅ Global session close: backend session_close is session-only (global), so end happens ONCE
 // ✅ One end record: write Events row with task="SESSION" only once
+// ✅ NEW: QC / Disposal / Return use PACK-like "scan start(scan join) / scan end(leave)" with auto session create
 
 /** ===== Lock Service (Apps Script WebApp, JSONP) ===== */
 var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdiSd6Ho4BqpRs1vKX41NYxa3gNYJV6FULx-4Wmsf0uNw/exec";
 
 /** ===== Router ===== */
-var pages = ["home","badge","global_menu","b2c_menu","b2c_tally","b2c_return","b2c_pick","b2c_relabel","b2c_pack","active_now"];
+var pages = [
+  "home","badge","global_menu","b2c_menu",
+  "b2c_tally","b2c_pick","b2c_pack","b2c_return","b2c_qc","b2c_disposal","b2c_relabel",
+  "active_now"
+];
 
 function setHash(page){ location.hash = "#/" + page; }
 function getHashPage(){
@@ -30,11 +35,15 @@ function renderPages(){
   }
 
   if(cur==="badge"){ refreshUI(); refreshDaUI(); }
+
   if(cur==="b2c_tally"){ restoreState(); renderActiveLists(); renderInboundCountUI(); refreshUI(); }
-  if(cur==="b2c_return"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pick"){ syncLeaderPickUI(); restoreState(); renderActiveLists(); refreshUI(); }
-  if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="b2c_return"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="b2c_qc"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="b2c_disposal"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
+
   if(cur==="active_now"){ refreshActiveNow(); }
   if(cur==="b2c_menu"){ refreshUI(); }
 }
@@ -67,6 +76,8 @@ var activeRelabel = new Set();
 var activePack = new Set();
 var activeTally = new Set();
 var activeReturn = new Set();
+var activeQc = new Set();
+var activeDisposal = new Set();
 
 var relabelTimerHandle = null;
 var relabelStartTs = null;
@@ -131,6 +142,8 @@ function keyActiveRelabel(){ return "activeRelabel_" + (currentSessionId || "NA"
 function keyActivePack(){ return "activePack_" + (currentSessionId || "NA"); }
 function keyActiveTally(){ return "activeTally_" + (currentSessionId || "NA"); }
 function keyActiveReturn(){ return "activeReturn_" + (currentSessionId || "NA"); }
+function keyActiveQc(){ return "activeQc_" + (currentSessionId || "NA"); }
+function keyActiveDisposal(){ return "activeDisposal_" + (currentSessionId || "NA"); }
 function keyInbounds(){ return "inbounds_" + (currentSessionId || "NA"); }
 
 var RECENT_MAX = 80;
@@ -171,6 +184,8 @@ function persistState(){
   localStorage.setItem(keyActivePack(), JSON.stringify(Array.from(activePack)));
   localStorage.setItem(keyActiveTally(), JSON.stringify(Array.from(activeTally)));
   localStorage.setItem(keyActiveReturn(), JSON.stringify(Array.from(activeReturn)));
+  localStorage.setItem(keyActiveQc(), JSON.stringify(Array.from(activeQc)));
+  localStorage.setItem(keyActiveDisposal(), JSON.stringify(Array.from(activeDisposal)));
   localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
 }
 
@@ -183,6 +198,8 @@ function restoreState(){
   try{ activePack = new Set(JSON.parse(localStorage.getItem(keyActivePack()) || "[]")); }catch(e){ activePack = new Set(); }
   try{ activeTally = new Set(JSON.parse(localStorage.getItem(keyActiveTally()) || "[]")); }catch(e){ activeTally = new Set(); }
   try{ activeReturn = new Set(JSON.parse(localStorage.getItem(keyActiveReturn()) || "[]")); }catch(e){ activeReturn = new Set(); }
+  try{ activeQc = new Set(JSON.parse(localStorage.getItem(keyActiveQc()) || "[]")); }catch(e){ activeQc = new Set(); }
+  try{ activeDisposal = new Set(JSON.parse(localStorage.getItem(keyActiveDisposal()) || "[]")); }catch(e){ activeDisposal = new Set(); }
   try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
 }
 
@@ -381,6 +398,8 @@ function cleanupLocalSession_(){
   localStorage.removeItem(keyActivePack());
   localStorage.removeItem(keyActiveTally());
   localStorage.removeItem(keyActiveReturn());
+  localStorage.removeItem(keyActiveQc());
+  localStorage.removeItem(keyActiveDisposal());
   localStorage.removeItem(keyInbounds());
   localStorage.removeItem(keyRecent());
 
@@ -406,7 +425,6 @@ async function endSessionGlobal_(){
     return;
   }
 
-  // Only first closer writes one end event (SESSION)
   var evId = makeEventId({ event:"end", biz:"B2C", task:"SESSION", wave_id:"", badgeRaw:"" });
   if(!hasRecent(evId)){
     submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"SESSION", pick_session_id: currentSessionId });
@@ -440,6 +458,8 @@ function isAlreadyActive(task, badge){
   if(task==="PACK") return activePack.has(badge);
   if(task==="TALLY") return activeTally.has(badge);
   if(task==="退件入库") return activeReturn.has(badge);
+  if(task==="质检") return activeQc.has(badge);
+  if(task==="废弃处理") return activeDisposal.has(badge);
   return false;
 }
 function applyActive(task, action, badge){
@@ -448,6 +468,8 @@ function applyActive(task, action, badge){
   if(task==="PACK"){ if(action==="join") activePack.add(badge); if(action==="leave") activePack.delete(badge); }
   if(task==="TALLY"){ if(action==="join") activeTally.add(badge); if(action==="leave") activeTally.delete(badge); }
   if(task==="退件入库"){ if(action==="join") activeReturn.add(badge); if(action==="leave") activeReturn.delete(badge); }
+  if(task==="质检"){ if(action==="join") activeQc.add(badge); if(action==="leave") activeQc.delete(badge); }
+  if(task==="废弃处理"){ if(action==="join") activeDisposal.add(badge); if(action==="leave") activeDisposal.delete(badge); }
 }
 
 /** ===== Render lists ===== */
@@ -522,7 +544,6 @@ async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
     var res = await jsonp(LOCK_URL, { action:"active_now" });
-
     if(!res || res.ok !== true){
       setStatus("在岗拉取失败 ❌ " + (res && res.error ? res.error : ""), false);
       alert("在岗拉取失败：" + (res && res.error ? res.error : "unknown"));
@@ -606,35 +627,6 @@ async function startTally(){
   }
 }
 async function endTally(){ return endSessionGlobal_(); }
-
-async function startReturn(){
-  try{
-    if(currentSessionId){
-      restoreState(); renderActiveLists(); refreshUI();
-      setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
-      return;
-    }
-
-    currentSessionId = makePickSessionId();
-    localStorage.setItem("pick_session_id", currentSessionId);
-
-    activeReturn = new Set();
-    persistState();
-
-    var evId = makeEventId({ event:"start", biz:"B2C", task:"退件入库", wave_id:"", badgeRaw:"" });
-    if(!hasRecent(evId)){
-      submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"退件入库", pick_session_id: currentSessionId });
-      addRecent(evId);
-    }
-
-    refreshUI();
-    renderActiveLists();
-    setStatus("退件入库开始已记录（待上传）✅", true);
-  }catch(e){
-    setStatus("退件入库开始失败 ❌ " + e, false);
-  }
-}
-async function endReturn(){ return endSessionGlobal_(); }
 
 async function startPicking(){
   try{
@@ -741,18 +733,24 @@ async function openScannerInboundCount(){
 }
 
 /** ===== Labor (join/leave) ===== */
+function taskAutoSession_(task){
+  // tasks that behave like PACK: scan-start / scan-end; auto create session if missing
+  return task === "PACK" || task === "退件入库" || task === "质检" || task === "废弃处理";
+}
+
 async function joinWork(biz, task){
   if(!currentSessionId){
-    if(task === "PACK"){
+    if(taskAutoSession_(task)){
       currentSessionId = makePickSessionId();
       localStorage.setItem("pick_session_id", currentSessionId);
       persistState();
       refreshUI();
 
+      // record a start event for this task (queued)
       try{
-        var evIdStart = makeEventId({ event:"start", biz:biz, task:"PACK", wave_id:"", badgeRaw:"" });
+        var evIdStart = makeEventId({ event:"start", biz:biz, task: task, wave_id:"", badgeRaw:"" });
         if(!hasRecent(evIdStart)){
-          submitEvent({ event:"start", event_id: evIdStart, biz: biz, task:"PACK", pick_session_id: currentSessionId });
+          submitEvent({ event:"start", event_id: evIdStart, biz: biz, task: task, pick_session_id: currentSessionId });
           addRecent(evIdStart);
         }
       }catch(e){}
@@ -778,9 +776,11 @@ async function leaveWork(biz, task){
 
   if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
-  if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
+  if(task === "PACK" && activePack.size === 0){ alert("当前没有人在验货贴单打包作业中（无需退出）。"); return; }
   if(task === "TALLY" && activeTally.size === 0){ alert("当前没有人在理货作业中（无需退出）。"); return; }
   if(task === "退件入库" && activeReturn.size === 0){ alert("当前没有人在退件入库作业中（无需退出）。"); return; }
+  if(task === "质检" && activeQc.size === 0){ alert("当前没有人在质检作业中（无需退出）。"); return; }
+  if(task === "废弃处理" && activeDisposal.size === 0){ alert("当前没有人在废弃处理作业中（无需退出）。"); return; }
 
   laborAction = "leave"; laborBiz = biz; laborTask = task;
   scanMode = "labor";
@@ -810,6 +810,7 @@ function makeDaId(){
   localStorage.setItem(key, String(seq));
   return "DA-" + yyyy + mm + dd + "-" + String(seq).padStart(2,'0');
 }
+
 async function dailyCheckin(){
   try{
     var da = makeDaId();
@@ -840,6 +841,7 @@ async function dailyCheckin(){
     setDaStatus("失败 ❌ " + e, false);
   }
 }
+
 async function bulkDailyCheckin(){
   try{
     var n = parseInt((document.getElementById("daCount")||{}).value || "0", 10);
@@ -871,7 +873,7 @@ async function bulkDailyCheckin(){
       localStorage.setItem("da_id", currentDaId);
     }
     refreshDaUI();
-    setDaStatus("批量生成完成（待上传）✅ 共 "+n+" 个", true);
+    setDaStatus("批量生成完成（��上传）✅ 共 "+n+" 个", true);
   }catch(e){
     setDaStatus("批量生成失败 ❌ " + e, false);
   }
@@ -991,7 +993,6 @@ async function openScannerCommon(){
     if(now - lastScanAt < 900) return;
     lastScanAt = now;
 
-    /** session_join */
     if(scanMode === "session_join"){
       var sid = parseSessionQr_(code);
       if(!sid){ setStatus("不是趟次二维码（CKSESSION|...）", false); return; }
@@ -1012,7 +1013,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** inbound_count */
     if(scanMode === "inbound_count"){
       var code2 = decodedText.trim();
       if(!code2){ setStatus("入库单号为空", false); return; }
@@ -1045,7 +1045,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** wave */
     if(scanMode === "wave"){
       var ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){ setStatus("波次格式不对（例：2026-0224-6）", false); return; }
@@ -1070,7 +1069,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** badgeBind */
     if(scanMode === "badgeBind"){
       if(!isOperatorBadge(code)){ setDaStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p = parseBadge(code);
@@ -1092,7 +1090,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** labor */
     if(scanMode === "labor"){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p2 = parseBadge(code);
@@ -1144,7 +1141,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** leader login */
     if(scanMode === "leaderLoginPick"){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p3 = parseBadge(code);
@@ -1162,7 +1158,6 @@ async function openScannerCommon(){
       return;
     }
 
-    /** leader end */
     if(scanMode === "leaderEndPick"){
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p4 = parseBadge(code);
