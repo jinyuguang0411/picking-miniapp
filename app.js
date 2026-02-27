@@ -89,6 +89,48 @@ var leaderPickBadge = localStorage.getItem("leader_pick_badge") || null;
 var leaderPickOk = false;
 var pendingLeaderEnd = null;
 
+/** ===== Session state (server) ===== */
+var SESSION_INFO_CACHE = { sid: null, ts: 0, data: null };
+var SESSION_INFO_TTL_MS = 5000;
+
+async function sessionInfoServer_(sid){
+  var session = String(sid || currentSessionId || "").trim();
+  if(!session) throw new Error("missing session");
+
+  var now = Date.now();
+  if(SESSION_INFO_CACHE.sid === session && (now - SESSION_INFO_CACHE.ts) < SESSION_INFO_TTL_MS && SESSION_INFO_CACHE.data){
+    return SESSION_INFO_CACHE.data;
+  }
+
+  var res = await jsonp(LOCK_URL, { action: "session_info", session: session });
+  if(!res || res.ok !== true) throw new Error((res && res.error) ? res.error : "session_info_failed");
+
+  SESSION_INFO_CACHE = { sid: session, ts: now, data: res };
+  return res;
+}
+
+async function isSessionClosedAsync_(){
+  if(!currentSessionId) return false;
+  try{
+    var info = await sessionInfoServer_(currentSessionId);
+    var st = String(info.status || "").trim().toUpperCase();
+    return st === "CLOSED";
+  }catch(e){
+    // 查询失败时不强行阻断，避免现场卡死；但会少一层保护
+    return false;
+  }
+}
+
+async function guardSessionOpenOrAlert_(msgWhenClosed){
+  if(!currentSessionId) return true;
+  var closed = await isSessionClosedAsync_();
+  if(!closed) return true;
+
+  alert(msgWhenClosed || "该趟次已结束，请重新开始或扫码加入新的趟次。");
+  setStatus("该趟次已结束（请重新开始）", false);
+  return false;
+}
+
 /** ===== Session join via QR ===== */
 function sessionQrPayload_(sessionId){ return "CKSESSION|" + String(sessionId || "").trim(); }
 function parseSessionQr_(text){
@@ -653,7 +695,7 @@ async function refreshActiveNow(){
       }
     }
 
-    setStatus("在岗已更新 ✅", true);
+    setStatus("在岗��更新 ✅", true);
   }catch(e){
     setStatus("在岗拉取异常 ❌ " + e, false);
     alert("在岗拉取异常：" + e);
@@ -664,6 +706,9 @@ async function refreshActiveNow(){
 async function startTally(){
   try{
     if(currentSessionId){
+      // 若 session 已关闭，提示重新开始
+      if(!(await guardSessionOpenOrAlert_("检测到本机 session 已结束，请点【开始理货】重新开新趟次，或扫码加入别的趟次。"))) return;
+
       restoreState(); renderActiveLists(); renderInboundCountUI(); refreshUI();
       setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
       return;
@@ -695,6 +740,8 @@ async function endTally(){ return endSessionGlobal_(); }
 async function startBulkOut(){
   try{
     if(currentSessionId){
+      if(!(await guardSessionOpenOrAlert_("检测到本机 session 已结束，请点【开始批量出库】重新开新趟次，或扫码加入别的趟次。"))) return;
+
       restoreState(); renderActiveLists(); renderBulkOutUI(); refreshUI();
       setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
       return;
@@ -726,6 +773,8 @@ async function endBulkOut(){ return endSessionGlobal_(); }
 async function startPicking(){
   try{
     if(currentSessionId){
+      if(!(await guardSessionOpenOrAlert_("检测到本机 session 已结束，请点【开始拣货】重新开新趟次，或扫码加入别的趟次。"))) return;
+
       restoreState(); renderActiveLists(); refreshUI();
       setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
       return;
@@ -748,7 +797,7 @@ async function startPicking(){
     }
 
     refreshUI();
-    setStatus("拣货开始已记录（待上传）✅ 现在可立即扫码加入", true);
+    setStatus("拣货开始已记录（待上传）✅ 现在可立即��码加入", true);
   }catch(e){
     setStatus("拣货开始失败 ❌ " + e, false);
   }
@@ -772,6 +821,8 @@ function startRelabelTimer(){
 async function startRelabel(){
   try{
     if(currentSessionId){
+      if(!(await guardSessionOpenOrAlert_("检测到本机 session 已结束，请点【开始换单】重新开新趟次，或扫码加入别的趟次。"))) return;
+
       restoreState(); renderActiveLists(); refreshUI();
       setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
       return;
@@ -805,6 +856,8 @@ async function endRelabel(){ return endSessionGlobal_(); }
 async function endPicking(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
+    if(!(await guardSessionOpenOrAlert_("该趟次已结束（无法结束拣货），请重新开始新的趟次。"))) return;
+
     if(!leaderPickOk){ setStatus("需要组长先登录（扫码）", false); return; }
     if(activePick.size > 0){
       setStatus("还有人员未退出，禁止结束", false);
@@ -823,6 +876,8 @@ async function endPicking(){
 
 async function openScannerWave(){
   if(!currentSessionId){ setStatus("请先开始拣货 / 먼저 시작", false); return; }
+  if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再扫码波次，请重新开始。"))) return;
+
   scanMode = "wave";
   document.getElementById("scanTitle").textContent = "扫码波次 / 웨이브 스캔";
   await openScannerCommon();
@@ -830,13 +885,17 @@ async function openScannerWave(){
 
 async function leaderLoginPick(){
   if(!currentSessionId){ setStatus("请先开始拣货再组长登录 / 먼저 시작", false); return; }
+  if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再组长登录，请重新开始。"))) return;
+
   scanMode = "leaderLoginPick";
-  document.getElementById("scanTitle").textContent = "扫码组长工牌登录 / 팀장 ���그인";
+  document.getElementById("scanTitle").textContent = "扫码组长工牌登录 / 팀장 로그인";
   await openScannerCommon();
 }
 
 async function openScannerInboundCount(){
   if(!currentSessionId){ setStatus("请先开始理货 / 먼저 시작", false); return; }
+  if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再扫码入库单，请重新开始。"))) return;
+
   scanMode = "inbound_count";
   document.getElementById("scanTitle").textContent = "扫码入库单号（计数/去重）";
   await openScannerCommon();
@@ -844,6 +903,8 @@ async function openScannerInboundCount(){
 
 async function openScannerBulkOutOrder(){
   if(!currentSessionId){ setStatus("请先开始批量出库 / 먼저 시작", false); return; }
+  if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再扫码出库单，请重新开始。"))) return;
+
   scanMode = "bulkout_order";
   document.getElementById("scanTitle").textContent = "扫码出库单号（计数/去重）";
   await openScannerCommon();
@@ -870,6 +931,8 @@ async function joinWork(biz, task){
       alert("请先在 B2C 菜单点【加入已有趟次（扫码）】\n或在本作业页点【开始】创建新趟次。");
       return;
     }
+  } else {
+    if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再加入作业，请重新开始或加入新趟次。"))) return;
   }
 
   laborAction = "join"; laborBiz = biz; laborTask = task;
@@ -884,6 +947,7 @@ async function leaveWork(biz, task){
     alert("当前没有进行中的趟次。\n请先加入趟次或开始作业。");
     return;
   }
+  if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能再退出作业，请重新开始或加入新趟次。"))) return;
 
   if(task === "PICK" && activePick.size === 0){ alert("当前没有人在拣货作业中（无需退出）。"); return; }
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
@@ -1032,6 +1096,8 @@ function generatePermanentDaBadges(){
 async function bindBadgeToSession(){
   try{
     if(!currentSessionId){ setDaStatus("请先开始某个作业再绑定 / 먼저 시작", false); return; }
+    if(!(await guardSessionOpenOrAlert_("该趟次已结束：不能绑定工牌，请重新开始。"))) return;
+
     scanMode = "badgeBind";
     document.getElementById("scanTitle").textContent = "扫码工牌（绑定） / 명찰 연결";
     await openScannerCommon();
@@ -1114,12 +1180,24 @@ async function openScannerCommon(){
       try{
         currentSessionId = sid;
         localStorage.setItem("pick_session_id", currentSessionId);
+
+        // 切换 session，清空 session_info 缓存，避免误判
+        SESSION_INFO_CACHE = { sid: null, ts: 0, data: null };
+
         restoreState();
         renderActiveLists();
         refreshUI();
 
-        alert("已加入趟次 ✅\n" + currentSessionId);
-        setStatus("已加入趟次 ✅ " + currentSessionId, true);
+        // 加入后立刻检查是否已关闭（防止扫到历史 session）
+        var closed = await isSessionClosedAsync_();
+        if(closed){
+          alert("已加入的趟次其实已结束（CLOSED）。\n请让组长提供新的趟次二维码，或在任一作业页重新开始。");
+          setStatus("加入失败：该趟次已结束", false);
+        }else{
+          alert("已加入趟次 ✅\n" + currentSessionId);
+          setStatus("已加入趟次 ✅ " + currentSessionId, true);
+        }
+
         await closeScanner();
       } finally { scanBusy = false; }
       return;
