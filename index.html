@@ -185,7 +185,7 @@
       <button class="primary" onclick="go('b2c_return')">退件入库（开始/结束扫工牌） <small>반품 입고</small></button>
       <button class="primary" onclick="go('b2c_qc')">质检（开始/结束扫工牌） <small>검품</small></button>
       <button class="primary" onclick="go('b2c_disposal')">废弃处理（开始/结束扫工牌） <small>폐기</small></button>
-      <button class="primary" onclick="go('b2c_relabel')">换单（已上线） <small>라벨</small></button>
+      <button class="primary" onclick="go('b2c_relabel')">换单（已上线） <small>송장갈이</small></button>
 
       <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
     </div>
@@ -338,7 +338,7 @@
   <div id="page-b2c_relabel" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-      <div class="grow pill">B2C 换单 / 라벨</div>
+      <div class="grow pill">B2C 换单 / 송장갈이</div>
     </div>
 
     <div class="card">
@@ -367,7 +367,7 @@
     </div>
 
     <div class="card">
-      <div class="pill">✅ 开始=扫工牌；结束=扫工牌（同一工牌��能同时在其它任务中）</div>
+      <div class="pill">✅ 开始=扫工牌；结束=扫工牌（同一工牌不能同时在其它任务中）</div>
 
       <button class="primary" onclick="joinWork('B2C','PACK')">开始作业（扫工牌） <small>시작(명찰 스캔)</small></button>
       <button class="primary" onclick="leaveWork('B2C','PACK')">结束作业（扫工牌） <small>종료(명찰 스캔)</small></button>
@@ -397,8 +397,7 @@
     </div>
   </div>
 
-  <!-- 四件套：先 UI 再 App -->
-  <script src="./ui.js"></script>
+  <!-- 四件套：只保留 App -->
   <script src="./app.js"></script>
 </body>
 </html>
