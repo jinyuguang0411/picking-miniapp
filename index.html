@@ -64,6 +64,7 @@
 
     <div class="card">
       <button class="primary" onclick="go('active_now')">全局在岗（已上线） <small>Active Now</small></button>
+      <button class="primary" onclick="go('report')">劳效 / 工时汇总 <small>Report</small></button>
       <button class="primary" onclick="go('badge')">工牌 / Badge <small>명찰</small></button>
       <button class="primary" onclick="go('b2c_menu')">B2C <small>피킹/라벨/포장</small></button>
       <button class="ghost" onclick="comingSoon('进口快件（待上线）')">进口快件（待上线）</button>
@@ -89,6 +90,21 @@
     </div>
   </div>
 
+    <!-- REPORT -->
+  <div id="page-report" class="page" style="display:none;">
+    <div class="topbar">
+      <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
+      <div class="grow pill">劳效 / 工时汇总</div>
+    </div>
+
+    <div class="card">
+      <button class="primary" onclick="reportLoadToday()">拉取今天数据</button>
+      <button class="primary" onclick="reportExportCSV()">导出 CSV</button>
+
+      <div id="reportMeta" class="muted" style="margin-top:8px;"></div>
+      <div id="reportTable" style="margin-top:10px;"></div>
+    </div>
+  </div>
   <!-- BADGE -->
   <div id="page-badge" class="page" style="display:none;">
     <div class="topbar">
