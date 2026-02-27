@@ -695,7 +695,7 @@ async function refreshActiveNow(){
       }
     }
 
-    setStatus("在岗��更新 ✅", true);
+    setStatus("在岗拉取更新 ✅", true);
   }catch(e){
     setStatus("在岗拉取异常 ❌ " + e, false);
     alert("在岗拉取异常：" + e);
@@ -797,7 +797,7 @@ async function startPicking(){
     }
 
     refreshUI();
-    setStatus("拣货开始已记录（待上传）✅ 现在可立即��码加入", true);
+    setStatus("拣货开始已记录（待上传）✅ 现在可立即扫码加入", true);
   }catch(e){
     setStatus("拣货开始失败 ❌ " + e, false);
   }
