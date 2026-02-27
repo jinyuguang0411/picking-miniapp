@@ -1130,22 +1130,6 @@ async function openScannerCommon(){
           return;
         }
 
-        // join: acquire lock first
-        if(laborAction === "join"){
-          var r1 = await lockAcquireRemote(p2.raw, laborTask, currentSessionId);
-          if(!r1 || r1.ok !== true){
-            setStatus("锁服务异常 ❌", false);
-            alert("锁服务异常，请重试。");
-            return;
-          }
-          if(r1.locked !== true){
-            var lk = r1.lock || {};
-            setStatus("该工牌已在其它设备作业中 ❌", false);
-            alert("该工牌已在其它设备作业中：\n任务: "+(lk.task||"")+"\n设备: "+(lk.device_id||"")+"\n请先在原设备退出。");
-            return;
-          }
-        }
-
         // ✅ write sheet first
         await submitEvent({
           event: laborAction,
@@ -1162,10 +1146,6 @@ async function openScannerCommon(){
         renderActiveLists();
         persistState();
 
-        // ✅ leave: release lock at last
-        if(laborAction === "leave"){
-          try{ await lockReleaseRemote(p2.raw, laborTask); }catch(e){}
-        }
 
         alert((laborAction === "join" ? "已加入 ✅ " : "已退出 ✅ ") + p2.raw);
         setStatus((laborAction === "join" ? "加入成功 ✅ " : "退出成功 ✅ ") + p2.raw, true);
