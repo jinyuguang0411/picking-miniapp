@@ -13,7 +13,7 @@ var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdi
 var pages = [
   "home","badge","global_menu","b2c_menu",
   "b2c_tally","b2c_pick","b2c_pack","b2c_bulkout","b2c_return","b2c_qc","b2c_disposal","b2c_relabel",
-  "active_now"
+  "active_now","report"
 ];
 
 function setHash(page){ location.hash = "#/" + page; }
@@ -44,6 +44,7 @@ function renderPages(){
   if(cur==="b2c_qc"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_disposal"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
+  if(cur==="report"){ if(REPORT_CACHE && REPORT_CACHE.rows) renderReport_(); }
 
   if(cur==="active_now"){ refreshActiveNow(); }
   if(cur==="b2c_menu"){ refreshUI(); }
@@ -107,7 +108,7 @@ async function sessionInfoServer_(sid){
     return SESSION_INFO_CACHE.data;
   }
 
-  var res = await jsonp(LOCK_URL, { action: "session_info", session: session });
+  var res = await jsonpQ(LOCK_URL, { action: "session_info", session: session });
   if(!res || res.ok !== true) throw new Error((res && res.error) ? res.error : "session_info_failed");
 
   SESSION_INFO_CACHE = { sid: session, ts: now, data: res };
@@ -328,6 +329,14 @@ if(NET_BUSY){
   reject(new Error("busy: previous request not finished"));
   return;
 }
+    // ✅ 网络请求排队：避免 NET_BUSY 直接失败
+var NET_QUEUE = Promise.resolve();
+function jsonpQ(url, params){
+  NET_QUEUE = NET_QUEUE.then(function(){
+    return jsonp(url, params);
+  });
+  return NET_QUEUE;
+}
 netBusyOn_(action);
     var cb = "cb_" + Math.random().toString(16).slice(2);
     var qs = [];
@@ -450,7 +459,7 @@ async function submitEventSync_(o, silent){
     client_ms: (o.client_ms || Date.now())
   };
 
-  var res = await jsonp(LOCK_URL, params);
+  var res = await jsonpQ(LOCK_URL, params);
 
   if(!res || res.ok !== true){
     throw new Error((res && res.error) ? res.error : "提交失败：event_submit failed");
@@ -479,7 +488,7 @@ async function submitEvent(o){
 /** ===== Global session close helpers ===== */
 async function sessionCloseServer_(){
   if(!currentSessionId) throw new Error("missing session");
-  var res = await jsonp(LOCK_URL, {
+  var res = await jsonpQ(LOCK_URL, {
     action: "session_close",
     session: currentSessionId,
     device_id: makeDeviceId()
@@ -700,7 +709,7 @@ function fmtDur(ms){
 async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
-    var res = await jsonp(LOCK_URL, { action:"active_now" });
+    var res = await jsonpQ(LOCK_URL, { action:"active_now" });
 
     if(!res || res.ok !== true){
       setStatus("在岗拉取失败 ❌ " + (res && res.error ? res.error : ""), false);
@@ -1269,9 +1278,9 @@ async function openScannerCommon(){
         persistState();
         renderInboundCountUI();
 
-        var evIdX = makeEventId({ event:"wave", biz:"B2C", task:"TALLY", wave_id: code2, badgeRaw:"" });
+        var evIdX = makeEventId({ event:"scan", biz:"B2C", task:"TALLY", wave_id: code2, badgeRaw:"" });
         if(!hasRecent(evIdX)){
-          submitEvent({ event:"wave", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
+          submitEvent({ event:"scan", event_id: evIdX, biz:"B2C", task:"TALLY", pick_session_id: currentSessionId, wave_id: code2 });
           addRecent(evIdX);
         }
 
@@ -1301,9 +1310,9 @@ async function openScannerCommon(){
         persistState();
         renderBulkOutUI();
 
-        var evIdB = makeEventId({ event:"wave", biz:"B2C", task:"批量出库", wave_id: code3, badgeRaw:"" });
+        var evIdB = makeEventId({ event:"scan", biz:"B2C", task:"批量出库", wave_id: code3, badgeRaw:"" });
         if(!hasRecent(evIdB)){
-          submitEvent({ event:"wave", event_id: evIdB, biz:"B2C", task:"批量出库", pick_session_id: currentSessionId, wave_id: code3 });
+          submitEvent({ event:"scan", event_id: evIdB, biz:"B2C", task:"批量出库", pick_session_id: currentSessionId, wave_id: code3 });
           addRecent(evIdB);
         }
 
@@ -1468,6 +1477,162 @@ async function closeScanner(){
 
 function comingSoon(msg){
   alert((msg||"准备中") + "\n\n我们会逐步上线。");
+}
+
+/** ===== REPORT: 工时/劳效（本地计算） ===== */
+var REPORT_CACHE = { header: null, rows: null, kstDay: null };
+
+function kstDayKey_(ms){
+  var x = new Date((Number(ms)||0) + 9*3600*1000); // KST
+  return x.toISOString().slice(0,10); // YYYY-MM-DD
+}
+
+function rowsToObjects_(header, rows){
+  return rows.map(function(r){
+    var o = {};
+    for(var i=0;i<header.length;i++) o[header[i]] = r[i];
+    return o;
+  });
+}
+
+async function reportLoadToday(){
+  // KST 今天 00:00 的 server_ms 起点
+  var now = Date.now();
+  var todayKey = kstDayKey_(now);
+  var startMs = Date.parse(todayKey + "T00:00:00.000Z") - 9*3600*1000;
+
+  setStatus("拉取今日事件中... ⏳", true);
+
+  var res = await jsonpQ(LOCK_URL, {
+    action:"events_tail",
+    limit: 20000,
+    since_ms: String(startMs)
+  });
+
+  if(!res || res.ok !== true){
+    setStatus("拉取失败 ❌ " + (res && res.error ? res.error : "unknown"), false);
+    alert("拉取失败: " + (res && res.error ? res.error : "unknown"));
+    return;
+  }
+
+  REPORT_CACHE = { header: res.header, rows: res.rows, kstDay: todayKey };
+  renderReport_();
+  setStatus("拉取完成 ✅", true);
+}
+
+function calcWorkMinutes_(events){
+  // 只算 join/leave
+  events.sort(function(a,b){ return (a.server_ms||0) - (b.server_ms||0); });
+
+  var open = {};      // key -> join_ms
+  var sum = {};       // badge -> { biz/task -> ms }
+  var scanCount = {}; // badge -> { biz/task -> count }
+
+  events.forEach(function(e){
+    var ok = String(e.ok||"").toLowerCase();
+    if(ok === "false") return;
+
+    var ev = String(e.event||"").trim();
+    var badge = String(e.badge||"").trim();
+    var biz = String(e.biz||"").trim();
+    var task = String(e.task||"").trim();
+    var session = String(e.session||"").trim();
+    var t = Number(e.server_ms||0) || 0;
+
+    if(!badge || !biz || !task) return;
+
+    var taskKey = biz + "/" + task;
+    var k = badge + "|" + biz + "|" + task + "|" + session;
+
+    if(ev === "join"){
+      if(!open[k]) open[k] = t;
+      return;
+    }
+    if(ev === "leave"){
+      if(open[k]){
+        var dt = Math.max(0, t - open[k]);
+        delete open[k];
+
+        if(!sum[badge]) sum[badge] = {};
+        sum[badge][taskKey] = (sum[badge][taskKey]||0) + dt;
+      }
+      return;
+    }
+
+    if(ev === "scan"){
+      if(!scanCount[badge]) scanCount[badge] = {};
+      scanCount[badge][taskKey] = (scanCount[badge][taskKey]||0) + 1;
+    }
+  });
+
+  return { sum: sum, scanCount: scanCount };
+}
+
+function renderReport_(){
+  var meta = document.getElementById("reportMeta");
+  var table = document.getElementById("reportTable");
+  if(!meta || !table) return;
+
+  var header = REPORT_CACHE.header || [];
+  var rows = REPORT_CACHE.rows || [];
+  var objs = rowsToObjects_(header, rows);
+
+  var day = REPORT_CACHE.kstDay || kstDayKey_(Date.now());
+  var todayEvents = objs.filter(function(e){
+    return kstDayKey_(e.server_ms) === day;
+  });
+
+  var r = calcWorkMinutes_(todayEvents);
+
+  meta.textContent = "KST日期: " + day + " ｜ 事件数: " + todayEvents.length;
+
+  var badges = Object.keys(r.sum).sort();
+  if(badges.length === 0){
+    table.innerHTML = '<div class="muted">今天暂无 join/leave 数据</div>';
+    return;
+  }
+
+  var html = "";
+  badges.forEach(function(b){
+    html += '<div style="border:1px solid #eee;border-radius:12px;padding:10px;margin:8px 0;">';
+    html += '<div style="font-weight:800;">' + esc(b) + '</div>';
+
+    var tasks = r.sum[b];
+    var keys = Object.keys(tasks).sort();
+    keys.forEach(function(k){
+      var mins = Math.round(tasks[k] / 60000);
+      var cnt = (r.scanCount[b] && r.scanCount[b][k]) ? r.scanCount[b][k] : 0;
+      html += '<div class="muted" style="margin-top:4px;">' + esc(k) + " ：" + mins + " 分钟" + (cnt? (" ｜ 扫码数: "+cnt):"") + '</div>';
+    });
+
+    html += "</div>";
+  });
+
+  table.innerHTML = html;
+}
+
+function reportExportCSV(){
+  var header = REPORT_CACHE.header || [];
+  var rows = REPORT_CACHE.rows || [];
+  if(rows.length === 0){
+    alert("没有数据可导出（先点：拉取今天数据）");
+    return;
+  }
+
+  var csv = [];
+  csv.push(header.join(","));
+  rows.forEach(function(r){
+    csv.push(r.map(function(x){
+      var s = String(x==null?"":x).replace(/"/g,'""');
+      return '"' + s + '"';
+    }).join(","));
+  });
+
+  var blob = new Blob([csv.join("\n")], {type:"text/csv;charset=utf-8;"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "ck_events_" + (REPORT_CACHE.kstDay || "day") + ".csv";
+  a.click();
 }
 
 /** ===== init ===== */
