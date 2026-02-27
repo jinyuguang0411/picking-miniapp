@@ -8,6 +8,7 @@
 // ✅ PACK 自动建 session 时补 start 事件
 // ✅ 总控台 active_now（从 LOCK_URL?action=active_now 拉取）
 // ✅ 性能：start/wave/end 等非互斥事件走队列秒响应；join/leave 同步确认锁
+// ✅ NEW: session_close (server) to prevent duplicate end & prevent ending while still active
 
 /** ===== Form (legacy, kept for compatibility) ===== */
 var FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSer3mWq6A6OivAJKba5JE--CwlKnU6Teru586HCOZVoJo6qQg/formResponse";
@@ -53,8 +54,6 @@ function renderPages(){
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="active_now"){ refreshActiveNow(); }
-
-  // B2C menu: refresh session QR box if any
   if(cur==="b2c_menu"){ refreshUI(); }
 }
 window.addEventListener("hashchange", renderPages);
@@ -70,7 +69,7 @@ var scanMode = null;
 var currentSessionId = localStorage.getItem("pick_session_id") || null;
 
 var scannedWaves = new Set();
-var scannedInbounds = new Set(); // ✅ TALLY：入库单号去重集合
+var scannedInbounds = new Set();
 
 var lastScanAt = 0;
 var scanBusy = false;
@@ -84,8 +83,8 @@ var laborTask = null;
 var activePick = new Set();
 var activeRelabel = new Set();
 var activePack = new Set();
-var activeTally = new Set(); // ✅ TALLY：在岗
-var activeReturn = new Set(); // ✅ NEW：退件入库
+var activeTally = new Set();
+var activeReturn = new Set();
 
 var relabelTimerHandle = null;
 var relabelStartTs = null;
@@ -95,9 +94,7 @@ var leaderPickOk = false;
 var pendingLeaderEnd = null;
 
 /** ===== Session join via QR ===== */
-function sessionQrPayload_(sessionId){
-  return "CKSESSION|" + String(sessionId || "").trim();
-}
+function sessionQrPayload_(sessionId){ return "CKSESSION|" + String(sessionId || "").trim(); }
 function parseSessionQr_(text){
   var t = String(text || "").trim();
   if(!t) return null;
@@ -105,10 +102,7 @@ function parseSessionQr_(text){
     var sid = t.split("|").slice(1).join("|").trim();
     return sid || null;
   }
-  // fallback: allow raw PS-... (optional)
-  if(/^PS-\d{8}-\d{6}\d{0,}-/.test(t) || t.indexOf("PS-") === 0){
-    return t;
-  }
+  if(t.indexOf("PS-") === 0) return t; // fallback allow raw
   return null;
 }
 
@@ -157,7 +151,7 @@ function keyActiveTally(){ return "activeTally_" + (currentSessionId || "NA"); }
 function keyActiveReturn(){ return "activeReturn_" + (currentSessionId || "NA"); }
 function keyInbounds(){ return "inbounds_" + (currentSessionId || "NA"); }
 
-/** ===== session closed ===== */
+/** ===== session closed (local hint only; server is source of truth) ===== */
 function keyClosed(){ return "session_closed_" + (currentSessionId || "NA"); }
 function isSessionClosed(){
   if(!currentSessionId) return false;
@@ -206,8 +200,8 @@ function persistState(){
   localStorage.setItem(keyActiveRelabel(), JSON.stringify(Array.from(activeRelabel)));
   localStorage.setItem(keyActivePack(), JSON.stringify(Array.from(activePack)));
   localStorage.setItem(keyActiveTally(), JSON.stringify(Array.from(activeTally)));
-  localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
   localStorage.setItem(keyActiveReturn(), JSON.stringify(Array.from(activeReturn)));
+  localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
 }
 
 function restoreState(){
@@ -218,8 +212,8 @@ function restoreState(){
   try{ activeRelabel = new Set(JSON.parse(localStorage.getItem(keyActiveRelabel()) || "[]")); }catch(e){ activeRelabel = new Set(); }
   try{ activePack = new Set(JSON.parse(localStorage.getItem(keyActivePack()) || "[]")); }catch(e){ activePack = new Set(); }
   try{ activeTally = new Set(JSON.parse(localStorage.getItem(keyActiveTally()) || "[]")); }catch(e){ activeTally = new Set(); }
-  try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
   try{ activeReturn = new Set(JSON.parse(localStorage.getItem(keyActiveReturn()) || "[]")); }catch(e){ activeReturn = new Set(); }
+  try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
 }
 
 /** ===== Utils ===== */
@@ -383,6 +377,7 @@ async function submitEventSync_(o, silent){
       "请先在原设备退出（leave）后再加入。";
     throw new Error(msg);
   }
+
   return res;
 }
 
@@ -390,6 +385,46 @@ async function submitEvent(o){
   enqueueEvent_(o);
   flushQueue_();
   return { ok:true, queued:true };
+}
+
+/** ===== Server session helpers (NEW) ===== */
+async function sessionCloseServer_(biz, task){
+  if(!currentSessionId) throw new Error("missing session");
+  var res = await jsonp(LOCK_URL, {
+    action: "session_close",
+    biz: biz,
+    task: task,
+    session: currentSessionId,
+    device_id: makeDeviceId()
+  });
+  if(!res || res.ok !== true) throw new Error(res && res.error ? res.error : "session_close_failed");
+  return res;
+}
+
+function formatActiveListForAlert_(active){
+  if(!active || !active.length) return "";
+  return active.map(function(x){
+    return (x.badge||"") + " (" + (x.task||"") + ")";
+  }).join("\n");
+}
+
+function cleanupLocalSession_(){
+  // cleanup keys
+  localStorage.removeItem(keyWaves());
+  localStorage.removeItem(keyActivePick());
+  localStorage.removeItem(keyActiveRelabel());
+  localStorage.removeItem(keyActivePack());
+  localStorage.removeItem(keyActiveTally());
+  localStorage.removeItem(keyActiveReturn());
+  localStorage.removeItem(keyInbounds());
+  localStorage.removeItem(keyRecent());
+
+  setSessionClosed(true);
+
+  currentSessionId = null;
+  localStorage.removeItem("pick_session_id");
+
+  refreshUI();
 }
 
 /** ===== Badge helpers ===== */
@@ -417,6 +452,7 @@ function isAlreadyActive(task, badge){
   if(task==="退件入库") return activeReturn.has(badge);
   return false;
 }
+
 function applyActive(task, action, badge){
   if(task==="PICK"){
     if(action==="join") activePick.add(badge);
@@ -450,6 +486,7 @@ function renderSetToHtml(setObj){
   if(arr.length === 0) return '<span class="muted">无 / 없음</span>';
   return arr.map(function(x){ return '<span class="tag">' + badgeDisplay(x) + '</span>'; }).join("");
 }
+
 function renderActiveLists(){
   var pc = document.getElementById("pickCount");
   var pl = document.getElementById("pickActiveList");
@@ -492,7 +529,7 @@ function renderInboundCountUI(){
   }
 }
 
-/** ===== Global Active Now ===== */
+/** ===== Global Active Now (legacy) ===== */
 function esc(s){
   return String(s||"").replace(/[&<>"']/g,function(c){
     return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);
@@ -506,6 +543,7 @@ function fmtDur(ms){
   if(h>0) return h + "h" + String(m).padStart(2,"0") + "m";
   return m + "m";
 }
+
 async function refreshActiveNow(){
   try{
     setStatus("拉取在岗中... ⏳", true);
@@ -559,11 +597,11 @@ async function refreshActiveNow(){
     setStatus("在岗已更新 ✅", true);
   }catch(e){
     setStatus("在岗拉取异常 ❌ " + e, false);
-    alert("在岗拉取异常：" + e);
+    alert("在岗拉��异常：" + e);
   }
 }
 
-/** ===== NEW: RETURN ===== */
+/** ===== RETURN ===== */
 async function startReturn(){
   try{
     if(currentSessionId){
@@ -596,42 +634,38 @@ async function startReturn(){
 async function endReturn(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
-    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
 
-    if(activeReturn.size > 0){
+    // ✅ server close
+    var r = await sessionCloseServer_("B2C", "退件入库");
+    if(r.blocked){
+      var msg = "还有人员未退出，不能结束。\n\n" + formatActiveListForAlert_(r.active);
       setStatus("还有人员未退出，禁止结束", false);
-      alert("还有人员未退出作业，不能结束退件入库。");
+      alert(msg);
+      return;
+    }
+    if(r.already_closed){
+      alert("该趟次已结束（无需重复结束）");
+      setStatus("该趟次已结束（无需重复结束）", true);
+      cleanupLocalSession_();
       return;
     }
 
+    // closed ok => write end event once (queue)
     var evId = makeEventId({ event:"end", biz:"B2C", task:"退件入库", wave_id:"", badgeRaw:"" });
     if(!hasRecent(evId)){
       submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"退件入库", pick_session_id: currentSessionId });
       addRecent(evId);
     }
 
-    setSessionClosed(true);
     setStatus("退件入库结束已记录（待上传）✅", true);
-
-    // cleanup keys
-    localStorage.removeItem(keyWaves());
-    localStorage.removeItem(keyActivePick());
-    localStorage.removeItem(keyActiveRelabel());
-    localStorage.removeItem(keyActivePack());
-    localStorage.removeItem(keyActiveTally());
-    localStorage.removeItem(keyActiveReturn());
-    localStorage.removeItem(keyInbounds());
-    localStorage.removeItem(keyRecent());
-
-    currentSessionId = null;
-    localStorage.removeItem("pick_session_id");
-    refreshUI();
+    cleanupLocalSession_();
   }catch(e){
     setStatus("退件入库结束失败 ❌ " + e, false);
+    alert("退件入库结束失败：" + e);
   }
 }
 
-/** ===== TALLY (B2C) ===== */
+/** ===== TALLY ===== */
 async function startTally(){
   try{
     if(currentSessionId){
@@ -642,7 +676,6 @@ async function startTally(){
 
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
-
     setSessionClosed(false);
 
     activeTally = new Set();
@@ -667,11 +700,18 @@ async function startTally(){
 async function endTally(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
-    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
 
-    if(activeTally.size > 0){
+    var r = await sessionCloseServer_("B2C", "TALLY");
+    if(r.blocked){
+      var msg = "还有人员未退出，不能结束。\n\n" + formatActiveListForAlert_(r.active);
       setStatus("还有人员未退出，禁止结束", false);
-      alert("还有人员未退出作业，不能结束理货。");
+      alert(msg);
+      return;
+    }
+    if(r.already_closed){
+      alert("该趟次已结束（无需重复结束）");
+      setStatus("该趟次已结束（无需重复结束）", true);
+      cleanupLocalSession_();
       return;
     }
 
@@ -681,29 +721,16 @@ async function endTally(){
       addRecent(evId);
     }
 
-    setSessionClosed(true);
     setStatus("理货结束已记录（待上传）✅", true);
-
-    localStorage.removeItem(keyWaves());
-    localStorage.removeItem(keyActivePick());
-    localStorage.removeItem(keyActiveRelabel());
-    localStorage.removeItem(keyActivePack());
-    localStorage.removeItem(keyActiveTally());
-    localStorage.removeItem(keyActiveReturn());
-    localStorage.removeItem(keyInbounds());
-    localStorage.removeItem(keyRecent());
-
-    currentSessionId = null;
-    localStorage.removeItem("pick_session_id");
-    refreshUI();
+    cleanupLocalSession_();
   }catch(e){
     setStatus("理货结束失败 ❌ " + e, false);
+    alert("理货结束失败：" + e);
   }
 }
 
 async function openScannerInboundCount(){
   if(!currentSessionId){ setStatus("请先开始理货 / 먼저 시작", false); return; }
-  if(isSessionClosed()){ setStatus("该趟次已结束，禁止扫码", false); return; }
   scanMode = "inbound_count";
   document.getElementById("scanTitle").textContent = "扫码入库单号（计数/去重）";
   await openScannerCommon();
@@ -719,7 +746,6 @@ async function startPicking(){
     }
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
-
     setSessionClosed(false);
 
     scannedWaves = new Set();
@@ -744,7 +770,6 @@ async function startPicking(){
 
 async function openScannerWave(){
   if(!currentSessionId){ setStatus("请先开始拣货 / 먼저 시작", false); return; }
-  if(isSessionClosed()){ setStatus("该趟次已结束，禁止扫码波次（请重新开始）", false); return; }
   scanMode = "wave";
   document.getElementById("scanTitle").textContent = "扫码波次 / 웨이브 스캔";
   await openScannerCommon();
@@ -755,7 +780,6 @@ async function leaderLoginPick(){
     setStatus("请先开始拣货再组长登录 / 먼저 시작", false);
     return;
   }
-  if(isSessionClosed()){ setStatus("该趟次已结束，无法组长登录", false); return; }
   scanMode = "leaderLoginPick";
   document.getElementById("scanTitle").textContent = "扫码组长工牌登录 / 팀장 로그인";
   await openScannerCommon();
@@ -764,7 +788,6 @@ async function leaderLoginPick(){
 async function endPicking(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
-    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
     if(!leaderPickOk){ setStatus("需要组长先登录（扫码）", false); return; }
     if(activePick.size > 0){
       setStatus("还有人员未退出，禁止结束", false);
@@ -805,7 +828,6 @@ async function startRelabel(){
     }
     currentSessionId = makePickSessionId();
     localStorage.setItem("pick_session_id", currentSessionId);
-
     setSessionClosed(false);
 
     activeRelabel = new Set();
@@ -831,10 +853,18 @@ async function startRelabel(){
 async function endRelabel(){
   try{
     if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
-    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
-    if(activeRelabel.size > 0){
+
+    var r = await sessionCloseServer_("B2C", "RELABEL");
+    if(r.blocked){
+      var msg = "还有人员未退出，不能结束。\n\n" + formatActiveListForAlert_(r.active);
       setStatus("还有人员未退出，先 leave", false);
-      alert("还有人员未退出作业，建议先退出再结束。");
+      alert(msg);
+      return;
+    }
+    if(r.already_closed){
+      alert("该趟次已结束（无需重复结束）");
+      setStatus("该趟次已结束（无需重复结束）", true);
+      cleanupLocalSession_();
       return;
     }
 
@@ -844,27 +874,14 @@ async function endRelabel(){
       addRecent(evId);
     }
 
-    setSessionClosed(true);
-
     if(relabelTimerHandle) clearInterval(relabelTimerHandle);
     relabelTimerHandle = null;
 
     setStatus("换单结束已记录（待上传）✅", true);
-
-    localStorage.removeItem(keyWaves());
-    localStorage.removeItem(keyActivePick());
-    localStorage.removeItem(keyActiveRelabel());
-    localStorage.removeItem(keyActivePack());
-    localStorage.removeItem(keyActiveTally());
-    localStorage.removeItem(keyActiveReturn());
-    localStorage.removeItem(keyInbounds());
-    localStorage.removeItem(keyRecent());
-
-    currentSessionId = null;
-    localStorage.removeItem("pick_session_id");
-    refreshUI();
+    cleanupLocalSession_();
   }catch(e){
     setStatus("换单结束失败 ❌ " + e, false);
+    alert("换单结束失败：" + e);
   }
 }
 
@@ -874,7 +891,6 @@ async function joinWork(biz, task){
     if(task === "PACK"){
       currentSessionId = makePickSessionId();
       localStorage.setItem("pick_session_id", currentSessionId);
-
       setSessionClosed(false);
       persistState();
       refreshUI();
@@ -893,12 +909,6 @@ async function joinWork(biz, task){
     }
   }
 
-  if(isSessionClosed()){
-    setStatus("该趟次已结束，禁止加入（请重新开始）", false);
-    alert("该趟次已结束，请点击【开始】新建趟次后再加入。");
-    return;
-  }
-
   laborAction = "join"; laborBiz = biz; laborTask = task;
   scanMode = "labor";
   document.getElementById("scanTitle").textContent = "扫码工牌（加入）";
@@ -909,12 +919,6 @@ async function leaveWork(biz, task){
   if(!currentSessionId){
     setStatus("请先加入趟次（扫码）或先点开始", false);
     alert("当前没有进行中的趟次。\n请先加入趟次或开始作业。");
-    return;
-  }
-
-  if(isSessionClosed()){
-    setStatus("该趟次已结束，禁止退出（如需修正请联系管理员）", false);
-    alert("该趟次已结束，禁止退出。\n如需要修正，请用管理员方式处理。");
     return;
   }
 
@@ -930,9 +934,7 @@ async function leaveWork(biz, task){
   await openScannerCommon();
 }
 
-/** ===== Daily badge / Permanent / Employee / Bind / Leader / Scanner ===== */
-/** （以下从你原文件保持一致；核心改动已经在上面加入 session_join 分支） */
-
+/** ===== Daily badge (daily DA-YYYYMMDD-xx) ===== */
 function setDaStatus(msg, ok){
   if(ok===undefined) ok=true;
   var el = document.getElementById("daStatus");
@@ -1022,6 +1024,7 @@ async function bulkDailyCheckin(){
   }
 }
 
+/** ===== Long-term DA badges (DAF-xxx|name) ===== */
 function padNum(n, width){
   var s = String(n);
   return s.length>=width ? s : ("0".repeat(width-s.length)+s);
@@ -1032,7 +1035,7 @@ function normalizeNames(text){
 
 function generatePermanentDaBadges(){
   var ta = document.getElementById("daPermanentNames");
-  if(!ta){ alert("index.html 里还没加 长期日当工牌输入框（daPermanentNames）"); return; }
+  if(!ta){ alert("找不到 daPermanentNames"); return; }
   var names = normalizeNames(ta.value);
   if(names.length===0){ alert("请先输入长期日当姓名（每行一个）"); return; }
 
@@ -1040,7 +1043,7 @@ function generatePermanentDaBadges(){
   var pad = parseInt((document.getElementById("daPermanentPad")||{}).value || "3", 10);
 
   var listEl = document.getElementById("daPermanentList");
-  if(!listEl){ alert("index.html 里还没加 输出区（daPermanentList）"); return; }
+  if(!listEl){ alert("找不到 daPermanentList"); return; }
   listEl.innerHTML = "";
 
   names.forEach(function(name, idx){
@@ -1060,10 +1063,10 @@ function generatePermanentDaBadges(){
   alert("已生成长期日当工牌 ✅ 共 " + names.length + " 个\n建议截图/打印发放（以后每天都用这一张）。");
 }
 
+/** ===== Bind badge to session ===== */
 async function bindBadgeToSession(){
   try{
     if(!currentSessionId){ setDaStatus("请先开始某个作业再绑定 / 먼저 시작", false); return; }
-    if(isSessionClosed()){ setDaStatus("该趟次已结束，无法绑定工牌", false); return; }
     scanMode = "badgeBind";
     document.getElementById("scanTitle").textContent = "扫码工牌（绑定） / 명찰 연결";
     await openScannerCommon();
@@ -1072,6 +1075,7 @@ async function bindBadgeToSession(){
   }
 }
 
+/** ===== Employee badges ===== */
 function generateEmployeeBadges(){
   var ta = document.getElementById("empNames");
   if(!ta){ alert("找不到 empNames"); return; }
@@ -1102,6 +1106,7 @@ function generateEmployeeBadges(){
   alert("已生成员工工牌 ✅ 共 "+names.length+" 个\n建议截图/打印此页面发放。");
 }
 
+/** ===== Leader UI ===== */
 function syncLeaderPickUI(){
   var info = document.getElementById("leaderInfoPick");
   var btnEnd = document.getElementById("btnEndPick");
@@ -1116,8 +1121,10 @@ function syncLeaderPickUI(){
   }
 }
 
+/** ===== Scanner overlay ===== */
 function showOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.add("show"); }
 function hideOverlay(){ var el=document.getElementById("scannerOverlay"); if(el) el.classList.remove("show"); }
+
 async function pauseScanner(){ try{ if(scanner) await scanner.pause(true); }catch(e){} }
 
 async function openScannerCommon(){
@@ -1135,7 +1142,7 @@ async function openScannerCommon(){
     if(now - lastScanAt < 900) return;
     lastScanAt = now;
 
-    /** ✅ session_join */
+    /** session_join */
     if(scanMode === "session_join"){
       var sid = parseSessionQr_(code);
       if(!sid){
@@ -1148,11 +1155,8 @@ async function openScannerCommon(){
       try{
         currentSessionId = sid;
         localStorage.setItem("pick_session_id", currentSessionId);
-
-        // joining an existing session: ensure not marked closed locally
         setSessionClosed(false);
 
-        // restore state if existed, else start with empty
         restoreState();
         renderActiveLists();
         refreshUI();
@@ -1211,8 +1215,6 @@ async function openScannerCommon(){
 
     /** wave (PICK) */
     if(scanMode === "wave"){
-      if(isSessionClosed()){ setStatus("该趟次已结束，禁止扫码波次", false); await closeScanner(); return; }
-
       var ok = /^\d{4}-\d{4}-\d+$/.test(code);
       if(!ok){ setStatus("波次格式不对（例：2026-0224-6）", false); return; }
       if(scannedWaves.has(code)){ setStatus("重复波次已忽略 ⏭️ " + code, false); return; }
@@ -1240,13 +1242,8 @@ async function openScannerCommon(){
       return;
     }
 
-    /** badgeBind / labor / leader...（保持你原逻辑） */
-    // 下面部分与你之前一致（为节省篇幅，这里省略重复说明；实际文件里仍完整保留）
-    // ——开始复制你原有逻辑（badgeBind/labor/leaderLoginPick/leaderEndPick）——
-
     /** badgeBind */
     if(scanMode === "badgeBind"){
-      if(isSessionClosed()){ setDaStatus("该趟次已结束，禁止绑定", false); await closeScanner(); return; }
       if(!isOperatorBadge(code)){ setDaStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p = parseBadge(code);
 
@@ -1273,13 +1270,6 @@ async function openScannerCommon(){
 
     /** labor (join/leave must be SYNC) */
     if(scanMode === "labor"){
-      if(isSessionClosed()){
-        setStatus("该趟次已结束，禁止 join/leave（请重新开始）", false);
-        alert("该趟次已结束，禁止 join/leave。\n请点击【开始】新建趟次后再操作。");
-        await closeScanner();
-        return;
-      }
-
       if(!isOperatorBadge(code)){ setStatus("无效工牌（DA-... / DAF-...|名字 / EMP-...|名字）", false); return; }
       var p2 = parseBadge(code);
 
@@ -1346,7 +1336,6 @@ async function openScannerCommon(){
 
     /** leader login pick */
     if(scanMode === "leaderLoginPick"){
-      if(isSessionClosed()){ setStatus("该趟次已结束，无法组长登录", false); await closeScanner(); return; }
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p3 = parseBadge(code);
       if(!p3.id.startsWith("EMP-")){ setStatus("请扫组长员工工牌（EMP-xxx|名字）", false); return; }
@@ -1363,18 +1352,35 @@ async function openScannerCommon(){
       return;
     }
 
-    /** leader end pick */
+    /** leader end pick (NOW uses session_close) */
     if(scanMode === "leaderEndPick"){
-      if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); await closeScanner(); return; }
       if(!isOperatorBadge(code)){ setStatus("无效工牌（请扫 EMP-xxx|名字）", false); return; }
       var p4 = parseBadge(code);
       if(!p4.id.startsWith("EMP-")){ setStatus("请扫组长员工工牌（EMP-xxx|名字）", false); return; }
-      if(activePick.size > 0){ setStatus("还有人员未退出，禁止结束", false); alert("还有人员未退出作业，不能结束拣货。"); await closeScanner(); return; }
 
       scanBusy = true;
       await pauseScanner();
       try{
         leaderPickBadge = p4.raw; localStorage.setItem("leader_pick_badge", leaderPickBadge);
+
+        // ✅ server close
+        var r = await sessionCloseServer_("B2C", "PICK");
+        if(r.blocked){
+          var msg = "还有人员未退出，不能结束。\n\n" + formatActiveListForAlert_(r.active);
+          setStatus("还有人员未退出，禁止结束", false);
+          alert(msg);
+          return;
+        }
+        if(r.already_closed){
+          alert("该趟次已结束（无需重复结束）");
+          setStatus("该趟次已结束（无需重复结束）", true);
+          cleanupLocalSession_();
+          pendingLeaderEnd = null;
+          leaderPickOk = false;
+          refreshUI(); syncLeaderPickUI();
+          await closeScanner();
+          return;
+        }
 
         var biz = pendingLeaderEnd ? pendingLeaderEnd.biz : "B2C";
         var task = pendingLeaderEnd ? pendingLeaderEnd.task : "PICK";
@@ -1385,22 +1391,10 @@ async function openScannerCommon(){
           addRecent(evIdEnd);
         }
 
-        setSessionClosed(true);
-
         alert("已由组长确认结束 ✅ " + p4.raw);
         setStatus("结束已记录（待上传）✅", true);
 
-        localStorage.removeItem(keyWaves());
-        localStorage.removeItem(keyActivePick());
-        localStorage.removeItem(keyActiveRelabel());
-        localStorage.removeItem(keyActivePack());
-        localStorage.removeItem(keyActiveTally());
-        localStorage.removeItem(keyActiveReturn());
-        localStorage.removeItem(keyInbounds());
-        localStorage.removeItem(keyRecent());
-
-        currentSessionId = null;
-        localStorage.removeItem("pick_session_id");
+        cleanupLocalSession_();
         pendingLeaderEnd = null;
         leaderPickOk = false;
 
@@ -1427,6 +1421,7 @@ async function closeScanner(){
   hideOverlay();
 }
 
+/** ===== helper ===== */
 function comingSoon(msg){
   alert((msg||"准备中") + "\n\n我们会逐步上线。");
 }
