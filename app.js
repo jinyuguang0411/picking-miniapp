@@ -1,6 +1,6 @@
 // app.js - 业务逻辑（路由/状态/扫码/提交/跨设备锁/防重复/全局在岗看板）
 // ✅ 工牌：日当(每日) + 日当(长期带名字) + 员工工牌 + 绑定
-// ✅ 作业：PICK / RELABEL / PACK / TALLY（PICK/RELABEL/TALLY 必须先点开始；PACK 可直接 join 自动建 session）
+// ✅ 作业：PICK / RELABEL / PACK / TALLY / 退件入库
 // ✅ TALLY：入库理货（入库单号扫码去重计数，不记单号时长）
 // ✅ 跨设备锁：同一工牌不能被多设备重复 join
 // ✅ 防卡重复：scanBusy + 本地去重(event_id) + leave 必须在岗 + 扫码成功先 pause 摄像头
@@ -25,7 +25,7 @@ var LOCK_URL = "https://script.google.com/macros/s/AKfycbwPXpP853p_AVgTAfpTNThdi
 var LOCK_TTL_MS = 8 * 60 * 60 * 1000;
 
 /** ===== Router ===== */
-var pages = ["home","badge","global_menu","b2c_menu","b2c_tally","b2c_pick","b2c_relabel","b2c_pack","active_now"];
+var pages = ["home","badge","global_menu","b2c_menu","b2c_tally","b2c_return","b2c_pick","b2c_relabel","b2c_pack","active_now"];
 
 function setHash(page){ location.hash = "#/" + page; }
 function getHashPage(){
@@ -48,6 +48,7 @@ function renderPages(){
   // 页面进入时刷新
   if(cur==="badge"){ refreshUI(); refreshDaUI(); }
   if(cur==="b2c_tally"){ restoreState(); renderActiveLists(); renderInboundCountUI(); refreshUI(); }
+  if(cur==="b2c_return"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pick"){ syncLeaderPickUI(); restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_relabel"){ restoreState(); renderActiveLists(); refreshUI(); }
   if(cur==="b2c_pack"){ restoreState(); renderActiveLists(); refreshUI(); }
@@ -81,6 +82,7 @@ var activePick = new Set();
 var activeRelabel = new Set();
 var activePack = new Set();
 var activeTally = new Set(); // ✅ TALLY：在岗
+var activeReturn = new Set(); // ✅ NEW：退件入库
 
 var relabelTimerHandle = null;
 var relabelStartTs = null;
@@ -95,6 +97,7 @@ function keyActivePick(){ return "activePick_" + (currentSessionId || "NA"); }
 function keyActiveRelabel(){ return "activeRelabel_" + (currentSessionId || "NA"); }
 function keyActivePack(){ return "activePack_" + (currentSessionId || "NA"); }
 function keyActiveTally(){ return "activeTally_" + (currentSessionId || "NA"); }
+function keyActiveReturn(){ return "activeReturn_" + (currentSessionId || "NA"); } // ✅ NEW
 function keyInbounds(){ return "inbounds_" + (currentSessionId || "NA"); }
 
 /** ===== session closed ===== */
@@ -151,6 +154,9 @@ function persistState(){
   // ✅ TALLY
   localStorage.setItem(keyActiveTally(), JSON.stringify(Array.from(activeTally)));
   localStorage.setItem(keyInbounds(), JSON.stringify(Array.from(scannedInbounds)));
+
+  // ✅ NEW: RETURN
+  localStorage.setItem(keyActiveReturn(), JSON.stringify(Array.from(activeReturn)));
 }
 
 function restoreState(){
@@ -164,6 +170,9 @@ function restoreState(){
   // ✅ TALLY
   try{ activeTally = new Set(JSON.parse(localStorage.getItem(keyActiveTally()) || "[]")); }catch(e){ activeTally = new Set(); }
   try{ scannedInbounds = new Set(JSON.parse(localStorage.getItem(keyInbounds()) || "[]")); }catch(e){ scannedInbounds = new Set(); }
+
+  // ✅ NEW: RETURN
+  try{ activeReturn = new Set(JSON.parse(localStorage.getItem(keyActiveReturn()) || "[]")); }catch(e){ activeReturn = new Set(); }
 }
 
 /** ===== Utils ===== */
@@ -329,7 +338,6 @@ async function submitEventSync_(o, silent){
     throw new Error(msg);
   }
 
-  // optional: silent mode does not update UI here
   return res;
 }
 
@@ -365,6 +373,7 @@ function isAlreadyActive(task, badge){
   if(task==="RELABEL") return activeRelabel.has(badge);
   if(task==="PACK") return activePack.has(badge);
   if(task==="TALLY") return activeTally.has(badge);
+  if(task==="退件入库") return activeReturn.has(badge); // ✅ NEW
   return false;
 }
 
@@ -384,6 +393,10 @@ function applyActive(task, action, badge){
   if(task==="TALLY"){
     if(action==="join") activeTally.add(badge);
     if(action==="leave") activeTally.delete(badge);
+  }
+  if(task==="退件入库"){
+    if(action==="join") activeReturn.add(badge);
+    if(action==="leave") activeReturn.delete(badge);
   }
 }
 
@@ -420,6 +433,12 @@ function renderActiveLists(){
   var tl = document.getElementById("tallyActiveList");
   if(tc) tc.textContent = String(activeTally.size);
   if(tl) tl.innerHTML = renderSetToHtml(activeTally);
+
+  // ✅ NEW: RETURN
+  var xc = document.getElementById("returnCount");
+  var xl = document.getElementById("returnActiveList");
+  if(xc) xc.textContent = String(activeReturn.size);
+  if(xl) xl.innerHTML = renderSetToHtml(activeReturn);
 }
 
 function renderInboundCountUI(){
@@ -510,6 +529,76 @@ async function refreshActiveNow(){
   }
 }
 
+/** ===== NEW: RETURN (B2C) ===== */
+async function startReturn(){
+  try{
+    if(currentSessionId){
+      restoreState(); renderActiveLists(); refreshUI();
+      setStatus("检测到未结束趟次：已恢复现场 ✅（如需重开请先结束）", false);
+      return;
+    }
+
+    currentSessionId = makePickSessionId();
+    localStorage.setItem("pick_session_id", currentSessionId);
+
+    setSessionClosed(false);
+
+    // reset state
+    activeReturn = new Set();
+    persistState();
+
+    var evId = makeEventId({ event:"start", biz:"B2C", task:"退件入库", wave_id:"", badgeRaw:"" });
+    if(!hasRecent(evId)){
+      submitEvent({ event:"start", event_id: evId, biz:"B2C", task:"退件入库", pick_session_id: currentSessionId });
+      addRecent(evId);
+    }
+
+    refreshUI();
+    renderActiveLists();
+    setStatus("退件入库开始已记录（待上传）✅", true);
+  }catch(e){
+    setStatus("退件入库开始失败 ❌ " + e, false);
+  }
+}
+
+async function endReturn(){
+  try{
+    if(!currentSessionId){ setStatus("没有未结束趟次", false); return; }
+    if(isSessionClosed()){ setStatus("该趟次已结束（无需重复结束）", false); return; }
+
+    if(activeReturn.size > 0){
+      setStatus("还有人员未退出，禁止结束", false);
+      alert("还有人员未退出作业，不能结束退件入库。");
+      return;
+    }
+
+    var evId = makeEventId({ event:"end", biz:"B2C", task:"退件入库", wave_id:"", badgeRaw:"" });
+    if(!hasRecent(evId)){
+      submitEvent({ event:"end", event_id: evId, biz:"B2C", task:"退件入库", pick_session_id: currentSessionId });
+      addRecent(evId);
+    }
+
+    setSessionClosed(true);
+    setStatus("退件入库结束已记录（待上传）✅", true);
+
+    // cleanup keys
+    localStorage.removeItem(keyWaves());
+    localStorage.removeItem(keyActivePick());
+    localStorage.removeItem(keyActiveRelabel());
+    localStorage.removeItem(keyActivePack());
+    localStorage.removeItem(keyActiveTally());
+    localStorage.removeItem(keyActiveReturn());
+    localStorage.removeItem(keyInbounds());
+    localStorage.removeItem(keyRecent());
+
+    currentSessionId = null;
+    localStorage.removeItem("pick_session_id");
+    refreshUI();
+  }catch(e){
+    setStatus("退件入库结束失败 ❌ " + e, false);
+  }
+}
+
 /** ===== TALLY (B2C) ===== */
 async function startTally(){
   try{
@@ -571,6 +660,7 @@ async function endTally(){
     localStorage.removeItem(keyActiveRelabel());
     localStorage.removeItem(keyActivePack());
     localStorage.removeItem(keyActiveTally());
+    localStorage.removeItem(keyActiveReturn());
     localStorage.removeItem(keyInbounds());
     localStorage.removeItem(keyRecent());
 
@@ -738,6 +828,7 @@ async function endRelabel(){
     localStorage.removeItem(keyActiveRelabel());
     localStorage.removeItem(keyActivePack());
     localStorage.removeItem(keyActiveTally());
+    localStorage.removeItem(keyActiveReturn());
     localStorage.removeItem(keyInbounds());
     localStorage.removeItem(keyRecent());
 
@@ -806,6 +897,7 @@ async function leaveWork(biz, task){
   if(task === "RELABEL" && activeRelabel.size === 0){ alert("当前没有人在换单作业中（无需退出）。"); return; }
   if(task === "PACK" && activePack.size === 0){ alert("当前没有人在打包贴单作业中（无需退出）。"); return; }
   if(task === "TALLY" && activeTally.size === 0){ alert("当前没有人在理货作业中（无需退出）。"); return; }
+  if(task === "退件入库" && activeReturn.size === 0){ alert("当前没有人在退件入库作业中（无需退出）。"); return; } // ✅ NEW
 
   laborAction = "leave"; laborBiz = biz; laborTask = task;
   scanMode = "labor";
@@ -1253,6 +1345,7 @@ async function openScannerCommon(){
         localStorage.removeItem(keyActiveRelabel());
         localStorage.removeItem(keyActivePack());
         localStorage.removeItem(keyActiveTally());
+        localStorage.removeItem(keyActiveReturn());
         localStorage.removeItem(keyInbounds());
         localStorage.removeItem(keyRecent());
 
