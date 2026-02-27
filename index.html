@@ -185,7 +185,7 @@
       <button class="primary" onclick="go('b2c_return')">退件入库（开始/结束扫工牌） <small>반품 입고</small></button>
       <button class="primary" onclick="go('b2c_qc')">质检（开始/结束扫工牌） <small>검품</small></button>
       <button class="primary" onclick="go('b2c_disposal')">废弃处理（开始/结束扫工牌） <small>폐기</small></button>
-      <button class="primary" onclick="go('b2c_relabel')">换单（已上线） <small>송장갈이</small></button>
+      <button class="primary" onclick="go('b2c_relabel')">换单（已上线） <small>라벨</small></button>
 
       <button class="ghost" onclick="comingSoon('B2C 其他环节')">其他环节（待上线） <small>준비중</small></button>
     </div>
@@ -338,7 +338,7 @@
   <div id="page-b2c_relabel" class="page" style="display:none;">
     <div class="topbar">
       <button class="back small" onclick="back()">返回 <small>뒤로</small></button>
-      <div class="grow pill">B2C 换单 / 송장갈이</div>
+      <div class="grow pill">B2C 换单 / 라벨</div>
     </div>
 
     <div class="card">
@@ -397,7 +397,8 @@
     </div>
   </div>
 
-  <!-- 四件套：只保留 App -->
+  <!-- 四件套：先 UI 再 App -->
+  <script src="./ui.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
