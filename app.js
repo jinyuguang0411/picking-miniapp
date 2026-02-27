@@ -291,6 +291,15 @@ function setStatus(msg, ok){
 }
 // ===== Anti double-click / Net busy guard =====
 var NET_BUSY = false;
+// ✅ 网络请求排队：让所有网络请求顺序执行，避免 busy 报错
+var NET_QUEUE = Promise.resolve();
+
+function jsonpQ(url, params){
+  NET_QUEUE = NET_QUEUE.then(function(){
+    return jsonp(url, params);
+  });
+  return NET_QUEUE;
+}
 
 function netBusyOn_(action){
   NET_BUSY = true;
@@ -329,14 +338,7 @@ if(NET_BUSY){
   reject(new Error("busy: previous request not finished"));
   return;
 }
-    // ✅ 网络请求排队：避免 NET_BUSY 直接失败
-var NET_QUEUE = Promise.resolve();
-function jsonpQ(url, params){
-  NET_QUEUE = NET_QUEUE.then(function(){
-    return jsonp(url, params);
-  });
-  return NET_QUEUE;
-}
+
 netBusyOn_(action);
     var cb = "cb_" + Math.random().toString(16).slice(2);
     var qs = [];
